@@ -511,6 +511,8 @@ kbd {
 .credits .made { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; color: var(--ink); margin: 0; }
 .credits .made em { font-style: normal; color: var(--hi-1); }
 .credits p { margin: 0; }
+.credits a { color: var(--ink); }
+.credits a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
   .battery[data-charging="true"] i, .ipod[data-dead="true"] .port .slot { animation: none; }
@@ -572,7 +574,7 @@ kbd {
   </div>
 
   <form class="sp-paste" id="findPanel" hidden role="search">
-    <label for="findIn">Search Spotify</label>
+    <label for="findIn" id="findLabel">Search Spotify</label>
     <div><input id="findIn" type="search" placeholder="Song, artist, album or playlist" autocomplete="off" enterkeyhint="search"><button type="submit">Search</button></div>
     <p id="findMsg" role="status"></p>
   </form>
@@ -620,7 +622,7 @@ kbd {
 
   <footer class="credits">
     <p class="made">Created by <em>Aaron</em></p>
-    <p>Music plays through Spotify. Spotify is a trademark of Spotify AB.</p>
+    <p>Music plays through Spotify and <a href="https://audius.co" target="_blank" rel="noopener">Audius</a>. Spotify is a trademark of Spotify AB. Audius songs belong to their artists.</p>
   </footer>
   </div>
 </main>
@@ -722,8 +724,13 @@ const SP_CATS = [
 
 // anything read back from storage is checked before use
 const ITEM_URI = /^spotify:(track|album|playlist|artist|episode|show):([A-Za-z0-9]{10,40})$/;
+const AUD_URI = /^audius:track:[A-Za-z0-9]{1,24}$/;
 function cleanItem(x) {
   if (!x || typeof x.uri !== "string" || typeof x.name !== "string") return null;
+  if (AUD_URI.test(x.uri)) {
+    const url = typeof x.url === "string" && x.url.startsWith("https://audius.co/") ? x.url : "https://audius.co/";
+    return { name: x.name.slice(0, 120), by: String(x.by || "").slice(0, 80), type: "Song", uri: x.uri, url, art: typeof x.art === "string" && x.art.startsWith("https://") ? x.art : "", genre: typeof x.genre === "string" ? x.genre.slice(0, 40) : "" };
+  }
   const m = x.uri.match(ITEM_URI);
   if (!m) return null;
   return spItem(x.name.slice(0, 120), String(x.by || "").slice(0, 80), String(x.type || SP_KINDS[m[1]]).slice(0, 20), m[1], m[2]);
@@ -805,6 +812,8 @@ function playItem(item) {
   PLY.current = item; PLY.state = null; PLY.preview = false; PLY.nearEnd = false; PLY.embedErr = false;
   if (view() !== "now") NAV.stack.push("now");
   render();
+  if (isAud(item)) { if (CAN_EMBED) audioPlay(item); return; }
+  audEl.pause();
   if (premiumOn()) premiumPlay(item);
   else if (CAN_EMBED) loadEmbed(item);
 }
@@ -1063,12 +1072,17 @@ const FOR_YOU = [
 
 // ---- rewind / fast-forward ----
 function currentPos() {
+  if (isAud(PLY.current)) return audEl.currentTime * 1000;
   if (premiumOn()) return PREM.pos + (PREM.paused ? 0 : performance.now() - PREM.at);
   return PLY.state ? PLY.state.position : 0;
 }
 function seekBy(ms) {
   if (!PLY.current) return;
-  if (premiumOn()) {
+  if (isAud(PLY.current)) {
+    if (!audEl.duration) return;
+    audEl.currentTime = Math.max(0, Math.min(audEl.duration - 0.5, audEl.currentTime + ms / 1000));
+    audState();
+  } else if (premiumOn()) {
     if (!PREM.player || !PREM.dur) return;
     const to = Math.max(0, Math.min(PREM.dur - 500, currentPos() + ms));
     PREM.player.seek(to).catch(() => {});
@@ -1091,11 +1105,14 @@ const VOL_LO = '<svg viewBox="0 0 12 12"><path d="M1 4h2.5L7 1v10L3.5 8H1z"/></s
 const VOL_HI = '<svg viewBox="0 0 12 12"><path d="M0 4h2.5L6 1v10L2.5 8H0z"/><path d="M7.5 3.2a4 4 0 0 1 0 5.6l-.7-.7a3 3 0 0 0 0-4.2zM9.3 1.4a6.5 6.5 0 0 1 0 9.2l-.7-.7a5.5 5.5 0 0 0 0-7.8z"/></svg>';
 // keeps the progress bar moving between Spotify's updates
 setInterval(() => {
-  if (view() !== "now" || !premiumOn() || !$("#prog")) return;
-  const pos = Math.min(PREM.dur, PREM.pos + (PREM.paused ? 0 : performance.now() - PREM.at));
-  $("#prog").style.width = (PREM.dur ? pos / PREM.dur * 100 : 0) + "%";
+  if (view() !== "now" || !$("#prog")) return;
+  const a = isAud(PLY.current);
+  if (!a && !premiumOn()) return;
+  const dur = a ? (audEl.duration || 0) * 1000 : PREM.dur;
+  const pos = a ? audEl.currentTime * 1000 : Math.min(PREM.dur, PREM.pos + (PREM.paused ? 0 : performance.now() - PREM.at));
+  $("#prog").style.width = (dur ? pos / dur * 100 : 0) + "%";
   $("#tEl").textContent = fmt(pos / 1000);
-  $("#tRem").textContent = "-" + fmt((PREM.dur - pos) / 1000);
+  $("#tRem").textContent = "-" + fmt((dur - pos) / 1000);
   $("#volBar").style.width = (S.vol / 16 * 100) + "%";
   $("#npFoot").classList.toggle("show-vol", !NAV.scrub && performance.now() < PREM.volUntil);
   $("#npFoot").classList.toggle("scrub", !!NAV.scrub);
@@ -1116,6 +1133,61 @@ $("#clientIdSave").addEventListener("click", () => {
   $("#clientIdMsg").textContent = "Saved. Now press the centre button on “Connect Spotify Premium”.";
   render();
 });
+
+/* =========================================================
+   AUDIUS
+   Audius is an open music service for independent artists. Its API needs
+   no key and no login, and every song plays in full, for everyone.
+   SpotPod credits each artist and links back to the song on Audius.
+   ========================================================= */
+const AUDIUS = "https://api.audius.co/v1", AUD_APP = "SpotPod";
+const isAud = it => !!(it && typeof it.uri === "string" && it.uri.startsWith("audius:"));
+async function aud(path) {
+  const r = await fetch(`${AUDIUS}${path}${path.includes("?") ? "&" : "?"}app_name=${AUD_APP}`);
+  if (!r.ok) throw { message: "Audius didn't answer (error " + r.status + ")." };
+  return (await r.json()).data || [];
+}
+// songs the artist has locked (or deleted) are skipped
+const audTrack = t => (!t || t.is_delete || t.is_streamable === false || t.stream_conditions || (t.access && t.access.stream === false)) ? null
+  : cleanItem({ uri: "audius:track:" + t.id, name: t.title || "Song", by: t.user ? t.user.name : "", url: "https://audius.co" + (t.permalink || ""),
+      art: t.artwork ? (t.artwork["480x480"] || t.artwork["150x150"] || "") : "", genre: t.genre || "" });
+const audTracks = async path => (await aud(path)).map(audTrack).filter(Boolean);
+const audPlaylist = p => p && { name: p.playlist_name || "Playlist", by: p.user ? p.user.name : "", type: "Playlist", uri: "audius:playlist:" + p.id, url: "https://audius.co" + (p.permalink || "") };
+
+const AUD_MENU = [
+  { label: "Trending", loader: () => audTracks("/tracks/trending?limit=40") },
+  { label: "Search Audius", find: true },
+  { label: "Trending Playlists", loader: async () => (await aud("/playlists/trending?limit=20")).map(audPlaylist).filter(Boolean) },
+  ...["Hardstyle", "Dubstep", "Lo-Fi", "Electronic", "House", "Trap", "Drum & Bass"].map(g => ({ label: g, loader: () => audTracks(`/tracks/trending?limit=40&genre=${encodeURIComponent(g)}`) })),
+];
+
+// Audius songs play in a normal audio player, so the wheel controls everything
+const audEl = new Audio();
+audEl.preload = "auto";
+const volGain = () => Math.pow(S.vol / 16, 1.5);
+function audState() {
+  if (!isAud(PLY.current)) return;
+  PLY.state = { position: audEl.currentTime * 1000, duration: (audEl.duration || 0) * 1000, isPaused: audEl.paused };
+  updateNowBits();
+}
+["play", "pause", "loadedmetadata", "seeked"].forEach(ev => audEl.addEventListener(ev, audState));
+audEl.addEventListener("ended", () => { if (!queueStep(1)) audState(); });
+audEl.addEventListener("error", () => { if (isAud(PLY.current) && audEl.src) toast("Audius couldn't play that song"); });
+function audioPlay(item) {
+  if (spCtrl) { try { spCtrl.pause(); } catch (e) {} }
+  if (PREM.player) { try { PREM.player.pause(); } catch (e) {} }
+  audEl.src = `${AUDIUS}/tracks/${item.uri.split(":")[2]}/stream?app_name=${AUD_APP}`;
+  audEl.volume = volGain();
+  audEl.play().catch(() => toast("Press ⏯ to start"));
+}
+// songs like an Audius song: what's trending in its genre, or more by the same artist
+async function audLike(it) {
+  const list = it.genre ? await audTracks(`/tracks/trending?limit=40&genre=${encodeURIComponent(it.genre)}`)
+    : await audTracks(`/tracks/search?limit=30&query=${encodeURIComponent(it.by || it.name)}`);
+  const out = shuffled(list.filter(x => x.uri !== it.uri));
+  if (!out.length) throw { message: "Audius didn't find any similar songs." };
+  return out.slice(0, 30);
+}
 
 /* ---------- live Spotify search (claude.ai only) ---------- */
 const SP = { mcp: undefined, req: 0 };
@@ -1214,7 +1286,7 @@ const nowMenu = () => [
   { label: "Forward 10 seconds", act: () => seekBy(10000) },
   { label: "Scrub with the wheel", act: () => { NAV.scrub = true; toast("Spin to move through the song"); } },
   { label: "Add to Playlist", act: "addto" },
-  ...(connected() ? [{ label: "Songs Like This", act: "like" }] : []),
+  ...(connected() || isAud(PLY.current) ? [{ label: "Songs Like This", act: "like" }] : []),
 ];
 
 const accountRows = () => PREM.tokens
@@ -1349,6 +1421,7 @@ const menuItems = () => [
   connected() ? { label: "My Spotify", list: { label: "My Spotify", items: null, live: true } } : { label: "My Spotify", go: "account" },
   { label: "For You", go: connected() ? "foryou" : IN_CLAUDE ? "claudeForYou" : "account" },
   { label: "Search", go: connected() || IN_CLAUDE ? "find" : "account" },
+  { label: "Audius", go: "audius" },
   { label: "Browse", go: "browse" },
   { label: "Shuffle", value: S.shuffle ? "On" : "Off", act: toggleShuffle },
   { label: "Settings", go: "settings" },
@@ -1372,6 +1445,7 @@ function rowCount(v) {
     case "choice": return OPTIONS[NAV.choice].length;
     case "reset": return 2;
     case "foryou": return FOR_YOU.length;
+    case "audius": return CAN_EMBED ? AUD_MENU.length : 0;
     case "nowmenu": return nowMenu().length;
     case "find": return NAV.find && NAV.find.items ? NAV.find.items.length : 0;
     case "account": return CAN_EMBED && clientId() ? accountRows().length : 0;
@@ -1382,7 +1456,23 @@ function rowCount(v) {
   }
 }
 function push(v) { NAV.sel[v] = 0; NAV.top[v] = 0; NAV.stack.push(v); }
-function openList(L) { NAV.list = L; push("list"); }
+// lists can open inside lists (a playlist, then Songs Like This...), so each
+// remembers its own items and highlighted row for when MENU goes back to it
+NAV.listStack = [];
+function openList(L) {
+  if (NAV.list) { NAV.list.sel = sel("list"); NAV.list.top = NAV.top.list || 0; }
+  NAV.listStack.push(L);
+  NAV.list = L;
+  push("list");
+}
+function popView() {
+  if (NAV.stack.length < 2) return;
+  if (NAV.stack.pop() !== "list") return;
+  NAV.listStack.pop();
+  const L = NAV.listStack[NAV.listStack.length - 1];
+  if (L) { NAV.list = L; NAV.sel.list = L.sel || 0; NAV.top.list = L.top || 0; }
+}
+function homeView() { NAV.stack = ["menu"]; NAV.listStack = []; }
 function openPl(i) { NAV.pl = playlists[i].id; push("pl"); }
 
 const itemArt = () => ({ c1: "#3be07a", c2: "#0d5c2c" });
@@ -1406,7 +1496,7 @@ function render() {
   $("#hdrTitle").textContent = {
     menu: "SpotPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse",
     search: "Search Spotify", eq: "Equalizer", eqsteps: (EQ_GUIDES[NAV.eqGuide] || EQ_GUIDES[0]).label, list: NAV.list ? NAV.list.label : "Spotify", addto: "Add to Playlist", help: "Controls",
-    settings: "Settings", account: "Spotify Account", foryou: "For You", nowmenu: "Song", find: "Search", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings",
+    settings: "Settings", account: "Spotify Account", foryou: "For You", nowmenu: "Song", find: NAV.find && NAV.find.src ? "Search Audius" : "Search", audius: "Audius", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings",
   }[v];
   let html = "";
   if (v === "menu") {
@@ -1417,7 +1507,7 @@ function render() {
     html = listHTML(SP_CATS.map(c => ({ label: c.label, chev: true })), "search");
   } else if (v === "list") {
     const L = NAV.list;
-    if (L.loading) html = msgHTML("", "Searching Spotify…", true);
+    if (L.loading) html = msgHTML("", L.prompt ? "Searching Spotify…" : "Loading…", true);
     else if (L.err) html = msgHTML(L.err[0], L.err[1]);
     else if (!L.items || !L.items.length) html = msgHTML("Nothing here", "Press MENU and try another list.");
     else html = listHTML(L.items.map(it => ({ label: it.name, value: it.type })), "list");
@@ -1428,6 +1518,15 @@ function render() {
       : msgHTML("This playlist is empty", "Play something, then press the centre button and pick Add to Playlist.");
   } else if (v === "addto") {
     html = listHTML(plsRows(), "addto");
+  } else if (v === "now" && isAud(PLY.current) && CAN_EMBED) {
+    const it = PLY.current, q = PLY.queue;
+    html = `<div class="np">
+      <div class="np-count">Audius${q ? " · " + esc(q.name) : ""}${S.shuffle ? " · Shuffle" : ""}</div>
+      <div class="np-main">${it.art ? `<img class="cover" src="${esc(it.art)}" alt="" onerror="ibpodCoverFail(this)">` : artHTML({ c1: "#cc0fe0", c2: "#7e1bcc" })}<div class="np-info"><b>${esc(it.name)}</b><span>${esc(it.by)}</span><span class="meta">${esc(it.genre || "Audius")}</span></div></div>
+      <div class="np-foot" id="npFoot">
+        <div class="prog"><div class="bar"><i id="prog"></i></div><div class="times"><span id="tEl">0:00</span><span id="tRem">-0:00</span></div></div>
+        <div class="vol">${VOL_LO}<div class="bar"><i id="volBar"></i></div>${VOL_HI}</div>
+      </div></div>`;
   } else if (v === "now" && premiumOn()) {
     const t = PREM.track, it = PLY.current;
     PREM.shownUri = t ? t.uri : null;
@@ -1468,13 +1567,16 @@ function render() {
     }
   } else if (v === "foryou") {
     html = listHTML(FOR_YOU.map(f => ({ label: f.label, chev: true })), "foryou");
+  } else if (v === "audius") {
+    html = CAN_EMBED ? listHTML(AUD_MENU.map(f => ({ label: f.label, chev: true })), "audius")
+      : msgHTML("Use the SpotPod website", "Audius music plays on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
   } else if (v === "nowmenu") {
     html = listHTML(nowMenu().map(r => ({ label: r.label })), "nowmenu");
   } else if (v === "find") {
     const F = NAV.find;
-    if (F.loading) html = msgHTML("", "Searching Spotify…", true);
+    if (F.loading) html = msgHTML("", F.src ? "Searching Audius…" : "Searching Spotify…", true);
     else if (F.err) html = msgHTML(F.err[0], F.err[1]);
-    else if (!F.items) html = msgHTML("Search Spotify", "Type in the search box below the SpotPod, then press Search.");
+    else if (!F.items) html = msgHTML(F.src ? "Search Audius" : "Search Spotify", "Type in the search box below the SpotPod, then press Search.");
     else if (!F.items.length) html = msgHTML("Nothing found", "Try different words.");
     else html = listHTML(F.items.map(it => ({ label: it.by && it.type === "Song" ? `${it.name} · ${it.by}` : it.name, value: it.type })), "find");
   } else if (v === "reset") {
@@ -1502,6 +1604,7 @@ function render() {
       <p><b>⏮ ⏭</b> move through the list you're playing. <b>Hold</b> them to rewind or fast-forward. <b>Shuffle</b> mixes up that list.</p>
       <p><b>Now Playing:</b> the centre button opens Rewind, Forward, Scrub, Add to Playlist and Songs Like This.</p>
       <p><b>Search</b> and <b>For You</b> need you logged into Spotify (My Spotify).</p>
+      <p><b>Audius</b> plays full songs from independent artists for everyone, with no login. The wheel controls everything, even volume.</p>
       <p class="dim">Inside one Spotify playlist, use ⏭ in the Spotify player. To shuffle single songs, add songs from Search to an SpotPod playlist.</p>
       <p><b>Make a playlist:</b> Playlists → + New Playlist. Then play anything and press the centre button on Now Playing to add it.</p>
       <p><b>Battery:</b> it runs down faster while music plays. Click the charging port on the bottom edge of the SpotPod to plug in or unplug the charger.</p>
@@ -1511,13 +1614,14 @@ function render() {
     </div></div>`;
   }
   $("#view").innerHTML = html;
-  $("#spHost").hidden = BAT.dead || premiumOn() || !(v === "now" && CAN_EMBED && PLY.current && !PLY.embedErr);
+  $("#spHost").hidden = BAT.dead || premiumOn() || isAud(PLY.current) || !(v === "now" && CAN_EMBED && PLY.current && !PLY.embedErr);
   $("#setupPanel").hidden = !(v === "account" && CAN_EMBED && !clientId());
   updateNowBits();
   updateSpLink();
   updatePanel();
   $("#colorPanel").hidden = !(v === "choice" && NAV.choice === "body");
   $("#findPanel").hidden = v !== "find";
+  $("#findLabel").textContent = NAV.find && NAV.find.src ? "Search Audius" : "Search Spotify";
   if (v !== "now") NAV.scrub = false;
 }
 
@@ -1549,7 +1653,7 @@ function updateSpLink() {
   const it = highlighted(), a = $("#spLink");
   if (it && it.url) {
     a.href = it.url;
-    $("#spLinkText").textContent = `Open “${it.name}” in Spotify`;
+    $("#spLinkText").textContent = isAud(it) ? `Open “${it.name}” on Audius` : `Open “${it.name}” in Spotify`;
     a.hidden = false;
   } else a.hidden = true;
 }
@@ -1640,13 +1744,14 @@ function powerOff() {
   BAT.dead = true;
   if (spCtrl) { try { spCtrl.pause(); } catch (e) {} }
   if (PREM.player) { try { PREM.player.pause(); } catch (e) {} }
+  audEl.pause();
   $("#spHost").hidden = true;
   saveBattery();
   showBattery();
 }
 function powerOn() {
   BAT.dead = false;
-  NAV.stack = ["menu"];
+  homeView();
   render();
   toast("Charging");
 }
@@ -1700,15 +1805,16 @@ $("#findPanel").addEventListener("submit", async e => {
   if (BAT.dead) { $("#findMsg").textContent = "The SpotPod's battery is empty. Charge it first."; return; }
   $("#findIn").blur();   // so the arrow keys move through the results
   $("#findMsg").textContent = "";
-  const F = NAV.find = { label: "Search", items: null, loading: true, q };
+  const src = NAV.find && NAV.find.src;
+  const F = NAV.find = { label: "Search", items: null, loading: true, q, src };
   NAV.sel.find = 0; NAV.top.find = 0;
   if (view() !== "find") push("find");
   render();
   try {
-    if (connected()) F.items = await searchSpotify(q);
+    if (src === "audius") F.items = await audTracks(`/tracks/search?limit=30&query=${encodeURIComponent(q)}`);
+    else if (connected()) F.items = await searchSpotify(q);
     else if (IN_CLAUDE) {   // on claude.ai, search through the Spotify connector
       const L = { label: "Search", prompt: q, items: null };
-      NAV.list = L;
       await spSearch(L);
       F.items = L.items; F.err = L.err;
     } else F.err = ["Log into Spotify first", "Go to My Spotify to connect, then search."];
@@ -1732,6 +1838,13 @@ function scroll(d) {
   const v = view();
   clickSound();
   if (v === "now" && NAV.scrub) { seekBy(d * 5000); return; }
+  if (v === "now" && isAud(PLY.current)) {
+    S.vol = Math.max(0, Math.min(16, S.vol + d));
+    saveSettings();
+    audEl.volume = volGain();
+    PREM.volUntil = performance.now() + 1500;
+    return;
+  }
   if (v === "now" && premiumOn()) {
     S.vol = Math.max(0, Math.min(16, S.vol + d));
     saveSettings();
@@ -1763,7 +1876,7 @@ function select() {
     const it = menuItems()[s];
     if (it.list) { openList(it.list); if (it.list.live) { loadMine(it.list); return; } }
     else if (it.go === "claudeForYou") { const L = { label: "For You", prompt: "recommend songs for me based on my taste", items: null }; openList(L); spSearch(L); return; }
-    else if (it.go === "find") { NAV.find = NAV.find || { label: "Search", items: null }; push("find"); render(); setTimeout(() => $("#findIn").focus(), 30); return; }
+    else if (it.go === "find") { if (!NAV.find || NAV.find.src) NAV.find = { label: "Search", items: null }; push("find"); render(); setTimeout(() => $("#findIn").focus(), 30); return; }
     else if (it.go) { if (it.go === "help") NAV.help = 0; push(it.go); }
     if (it.act) it.act();
   } else if (v === "settings") {
@@ -1816,7 +1929,12 @@ function select() {
     if (L.err && !L.loading && L.live) { loadMine(L); return; }
     if (L.err && !L.loading && L.loader) { loadList(L); return; }
     const it = L.items && L.items[s];
-    if (it) { playQueue(L.label, L.items, s, false); return; }
+    if (it && it.uri.startsWith("audius:playlist:")) {
+      const id = it.uri.split(":")[2];
+      const P2 = { label: it.name, items: null, loader: () => audTracks(`/playlists/${id}/tracks`) };
+      openList(P2); loadList(P2); return;
+    }
+    if (it) { playQueue(L.label, L.items.filter(x => !x.uri.startsWith("audius:playlist:")), s - L.items.slice(0, s).filter(x => x.uri.startsWith("audius:playlist:")).length, false); return; }
   } else if (v === "pls") {
     openPl(s === 0 ? newPlaylist() : s - 1);
     if (s === 0) toast("New playlist made. Rename it below the iPod.");
@@ -1833,12 +1951,21 @@ function select() {
     else if (r.act === "addto") {
       if (PLY.current.uri === LIKED.uri) toast("Liked Songs can't go in a playlist");
       else push("addto");
+    } else if (r.act === "like" && isAud(PLY.current)) {
+      const cur = PLY.current;
+      const L = { label: "Like This", items: null, loader: () => audLike(cur) };
+      openList(L); loadList(L); return;
     } else if (r.act === "like") {
       const t = PREM.track;
       const artist = t ? t.artist : (PLY.current.by || "").split(",")[0].trim();
       if (!artist) { toast("SpotPod doesn't know this song's artist"); }
       else { const L = { label: "Like This", items: null, loader: () => songsLike(artist, t && t.artistId, t && t.uri) }; openList(L); loadList(L); return; }
     }
+  } else if (v === "audius") {
+    const f = AUD_MENU[s];
+    if (f.find) { NAV.find = { label: "Search", items: null, src: "audius" }; push("find"); render(); setTimeout(() => $("#findIn").focus(), 30); return; }
+    const L = { label: f.label, items: null, loader: f.loader };
+    openList(L); loadList(L); return;
   } else if (v === "foryou") {
     const f = FOR_YOU[s];
     const L = { label: f.label, items: null, loader: f.loader };
@@ -1864,7 +1991,7 @@ function menuBtn() {
   if (view() === "now" && NAV.scrub) { NAV.scrub = false; render(); return; }
   if (view() === "list" && NAV.list && NAV.list.prompt) SP.req++;
   if (view() === "choice" && NAV.preview) { NAV.preview = null; applySettings(); }
-  if (NAV.stack.length > 1) NAV.stack.pop();
+  popView();
   render();
 }
 function press(q) {
@@ -1873,6 +2000,12 @@ function press(q) {
   if (q === "top") return menuBtn();
   clickSound();
   const st = PLY.state;
+  if (isAud(PLY.current)) {
+    if (q === "bottom") { if (audEl.paused) audEl.play().catch(() => {}); else audEl.pause(); }
+    else if (q === "right") { if (!queueStep(1)) toast("That's the last song"); }
+    else if (q === "left") { if (audEl.currentTime > 3 || !queueStep(-1)) { audEl.currentTime = 0; audState(); } }
+    return;
+  }
   if (premiumOn()) {
     const p = PREM.player;
     if (!p || !PLY.current) { toast(p ? "Pick some music first" : "Spotify is still connecting…"); return; }
@@ -1971,7 +2104,7 @@ window.addEventListener("keydown", e => {
     Escape: () => menuBtn(), Backspace: () => menuBtn(), m: () => menuBtn(),
   };
   if (e.shiftKey && (k === "ArrowLeft" || k === "ArrowRight")) { e.preventDefault(); wake(); seekBy(k === "ArrowLeft" ? -10000 : 10000); return; }
-  if (k === "/") { e.preventDefault(); const i = menuItems().findIndex(m => m.label === "Search"); NAV.stack = ["menu"]; NAV.sel.menu = i; select(); return; }
+  if (k === "/") { e.preventDefault(); const i = menuItems().findIndex(m => m.label === "Search"); homeView(); NAV.sel.menu = i; select(); return; }
   if (!map[k]) return;
   if (k === "Enter" && document.activeElement === $("#center")) return; // the button's own click handles it
   e.preventDefault();
