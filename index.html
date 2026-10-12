@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>SpotPod</title>
-<meta name="description" content="SpotPod: a click-wheel music player for YouTube music.">
+<title>YouPod</title>
+<meta name="description" content="YouPod: a click-wheel music player for YouTube music.">
 <meta name="theme-color" content="#0a1120">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="SpotPod">
+<meta name="apple-mobile-web-app-title" content="YouPod">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -49,7 +49,7 @@ body {
   place-items: center;
   overflow-x: hidden;
 }
-/* phones: one column. desktops: the SpotPod on the left, its tools on the right */
+/* phones: one column. desktops: the YouPod on the left, its tools on the right */
 .stage { display: flex; flex-direction: column; align-items: center; gap: 18px; position: relative; width: 100%; max-width: 62rem; }
 .side { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; position: relative; z-index: 1; }
 @media (min-width: 860px) and (min-height: 520px) {
@@ -532,7 +532,7 @@ kbd {
 <body>
 <main class="stage" id="stage">
   <div class="glow-layer" aria-hidden="true"><div class="glow" id="glow"></div></div>
-  <h1 class="title">SpotPod <span>· YouTube music, click-wheel style</span></h1>
+  <h1 class="title">YouPod <span>· YouTube music, click-wheel style</span></h1>
 
   <div class="ipod-wrap" id="wrap">
     <div class="ipod" id="ipod" data-body="silver" data-wheel="match">
@@ -540,7 +540,7 @@ kbd {
         <div class="screen" id="screen" aria-live="polite" data-theme="classic" data-hi="blue" data-text="normal">
           <div class="hdr">
             <span class="hdr-state" id="hdrState"></span>
-            <span class="hdr-title" id="hdrTitle">SpotPod</span>
+            <span class="hdr-title" id="hdrTitle">YouPod</span>
             <span class="bat" id="bat"><span id="batPct">100%</span><span class="battery" id="battery"><i id="batFill"></i></span></span>
           </div>
           <div class="view" id="view"></div>
@@ -584,7 +584,7 @@ kbd {
   <section class="panel setup" id="setupPanel" hidden aria-label="Set up YouTube search">
     <b>Set up YouTube search (owner only, one time)</b>
     <ol>
-      <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a>, log in with Google and make a new project called <b>SpotPod</b>.</li>
+      <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a>, log in with Google and make a new project called <b>YouPod</b>.</li>
       <li>Open <b>APIs &amp; Services → Library</b>, find <b>YouTube Data API v3</b> and click <b>Enable</b>.</li>
       <li>Open <b>APIs &amp; Services → Credentials → Create credentials → API key</b>.</li>
       <li>Click the new key to edit it. Under <b>Application restrictions</b> pick <b>Websites</b> and add <code id="keySite"></code> <button type="button" class="ghost" id="copySite">Copy</button>. Under <b>API restrictions</b> pick <b>YouTube Data API v3</b>. Click <b>Save</b>.</li>
@@ -625,7 +625,7 @@ kbd {
 
   <footer class="credits">
     <p class="made">Created by <em>Aaron</em></p>
-    <p>Music plays through YouTube. YouTube is a trademark of Google LLC. SpotPod isn't made by YouTube, Google or Apple.</p>
+    <p>Music plays through YouTube. YouTube is a trademark of Google LLC. YouPod isn't made by YouTube, Google or Apple.</p>
     <p class="legal"><a href="terms.html">Terms &amp; Privacy</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms of Service</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a></p>
   </footer>
   </div>
@@ -633,11 +633,11 @@ kbd {
 
 <div class="consent" id="consent" hidden role="dialog" aria-modal="true" aria-labelledby="consentTitle">
   <div class="consent-card">
-    <h2 id="consentTitle">Welcome to SpotPod</h2>
-    <p>SpotPod is a free music player that plays music from <b>YouTube</b>.</p>
+    <h2 id="consentTitle">Welcome to YouPod</h2>
+    <p>YouPod is a free music player that plays music from <b>YouTube</b>.</p>
     <ul>
-      <li>By using SpotPod, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms of Service</a> and to SpotPod's <a href="terms.html" target="_blank" rel="noopener">Terms &amp; Privacy</a>.</li>
-      <li>SpotPod uses YouTube API Services, so the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a> applies too.</li>
+      <li>By using YouPod, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms of Service</a> and to YouPod's <a href="terms.html" target="_blank" rel="noopener">Terms &amp; Privacy</a>.</li>
+      <li>YouPod uses YouTube API Services, so the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a> applies too.</li>
       <li>Your playlists and settings stay in this browser only. YouTube's player may use cookies.</li>
     </ul>
     <button type="button" id="agree">I agree</button>
@@ -686,14 +686,14 @@ function store(key, value) {
    YOUTUBE MUSIC
    Songs play through YouTube's official player. YouTube's rules say the
    video must stay visible (at least 200 × 200 pixels), so it plays on a
-   "TV" next to the SpotPod and the SpotPod is the remote. Search and the
-   Browse charts use the YouTube Data API with SpotPod's API key.
+   "TV" next to the YouPod and the YouPod is the remote. Search and the
+   Browse charts use the YouTube Data API with YouPod's API key.
    ========================================================= */
 const IN_CLAUDE = !!(window.claude && typeof window.claude.use === "function");
 const CAN_PLAY = !IN_CLAUDE;   // claude.ai can't show other websites' players
 const YT_API_KEY = "AIzaSyBCTgmucw9UWVLcB6qGLEYpmq1Zhag9aLg";          // from console.cloud.google.com, locked to this website
 const ytKey = () => YT_API_KEY || String(load("spotpod-yt-key", "") || "");
-// the key only works from SpotPod's own pages, so tell Google the full page address
+// the key only works from YouPod's own pages, so tell Google the full page address
 const YT_FETCH = { referrerPolicy: "no-referrer-when-downgrade" };
 
 // YouTube titles arrive with HTML codes like &amp; – turn them back into text
@@ -729,7 +729,7 @@ function addToPlaylist(i, item) {
   toast(`Added to ${pl.name}`);
 }
 
-// what you've played on SpotPod (For You learns from this)
+// what you've played on YouPod (For You learns from this)
 let history = (Array.isArray(load("spotpod-history", [])) ? load("spotpod-history", []) : []).map(cleanItem).filter(Boolean).slice(0, 60);
 function remember(item) {
   history = [item, ...history.filter(x => x.uri !== item.uri)].slice(0, 60);
@@ -740,8 +740,8 @@ function remember(item) {
    Every search uses part of the key's daily allowance (about 100 searches a
    day for everyone together), so results are saved for 12 hours. */
 async function ytSearch(q, max = 25) {
-  if (!CAN_PLAY) throw { message: "Search works on the SpotPod website, not inside claude.ai." };
-  if (!ytKey()) throw { message: "Search isn't set up yet. SpotPod's owner needs to add a YouTube key in Settings → YouTube Setup." };
+  if (!CAN_PLAY) throw { message: "Search works on the YouPod website, not inside claude.ai." };
+  if (!ytKey()) throw { message: "Search isn't set up yet. YouPod's owner needs to add a YouTube key in Settings → YouTube Setup." };
   const cache = load("spotpod-cache", {}) || {};
   const c = cache[q];
   if (c && Date.now() - c.t < 12 * 3600000 && Array.isArray(c.items)) return c.items.map(cleanItem).filter(Boolean);
@@ -751,7 +751,7 @@ async function ytSearch(q, max = 25) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     const reason = j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason;
-    if (reason === "quotaExceeded" || reason === "dailyLimitExceeded") throw { message: "SpotPod has used up today's YouTube searches. They come back tomorrow." };
+    if (reason === "quotaExceeded" || reason === "dailyLimitExceeded") throw { message: "YouPod has used up today's YouTube searches. They come back tomorrow." };
     if (reason === "keyInvalid" || r.status === 400) throw { message: "The YouTube key isn't working. Check it in Settings → YouTube Setup." };
     if (r.status === 403) throw { message: "YouTube said no (" + (reason || "403") + "). Check the key's website settings." };
     throw { message: "YouTube didn't answer (error " + r.status + ")." };
@@ -777,9 +777,9 @@ const BROWSE = [
 ];
 
 const shuffled = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-// For You: new songs from the artists you play most on SpotPod
+// For You: new songs from the artists you play most on YouPod
 async function mixForYou() {
-  if (!history.length) throw { message: "Play some songs first, so SpotPod can learn what you like." };
+  if (!history.length) throw { message: "Play some songs first, so YouPod can learn what you like." };
   const score = {};
   history.forEach((h, i) => { if (h.by) score[h.by] = (score[h.by] || 0) + (60 - i); });
   const artists = Object.keys(score).sort((a, b) => score[b] - score[a]).slice(0, 3);
@@ -952,7 +952,7 @@ async function refreshSaved() {
 }
 setInterval(refreshSaved, 6 * 3600000);
 
-// Settings → Delete My Data: wipes everything SpotPod saved in this browser
+// Settings → Delete My Data: wipes everything YouPod saved in this browser
 const SAVED_KEYS = ["tackle-ipod", "tackle-ipod-playlists", "tackle-ipod-battery", "tackle-ipod-links", "tackle-ipod-saveto",
   "spotpod-history", "spotpod-cache", "spotpod-agreed", "spotpod-yt-key", "ibpod-spotify", "ibpod-client-id", "ibpod-pkce"];
 function deleteMyData() {
@@ -960,7 +960,7 @@ function deleteMyData() {
   SAVED_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
   location.reload();
 }
-// SpotPod no longer uses Spotify: remove anything the old version saved
+// YouPod no longer uses Spotify: remove anything the old version saved
 ["ibpod-spotify", "ibpod-client-id", "ibpod-pkce", "tackle-ipod-links", "tackle-ipod-saveto"].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
 
 // the first-visit "I agree" box
@@ -974,7 +974,7 @@ $("#agree").addEventListener("click", () => {
   $("#wheel").focus();
 });
 
-/* setup box: SpotPod's YouTube key */
+/* setup box: YouPod's YouTube key */
 $("#keySite").textContent = location.origin + "/*";
 $("#copySite").addEventListener("click", () => {
   navigator.clipboard.writeText(location.origin + "/*").then(() => toast("Copied"), () => {
@@ -1197,7 +1197,7 @@ function render() {
   const v = view();
   const pl = curPl();
   $("#hdrTitle").textContent = {
-    menu: "SpotPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse YouTube",
+    menu: "YouPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse YouTube",
     list: NAV.list ? NAV.list.label : "Music", addto: "Add to Playlist", help: "Controls",
     settings: "Settings", ytsetup: "YouTube Setup", foryou: "For You", nowmenu: "Song", find: "Search YouTube", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings", wipe: "Delete My Data",
   }[v];
@@ -1222,7 +1222,7 @@ function render() {
   } else if (v === "now") {
     const it = PLY.current, q = PLY.queue;
     if (!it) html = msgHTML("Nothing playing yet", "Pick something from Search, Browse or your Playlists.");
-    else if (!CAN_PLAY) html = msgHTML("Open the SpotPod website", "Music plays on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
+    else if (!CAN_PLAY) html = msgHTML("Open the YouPod website", "Music plays on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
     else html = `<div class="np">
       <div class="np-count">${q ? `${q.pos + 1} of ${q.order.length} · ${esc(q.name)}` : "YouTube"}${S.shuffle ? " · Shuffle" : ""}</div>
       <div class="np-main"><img class="cover" src="${esc(it.art)}" alt="" onerror="ibpodCoverFail(this)"><div class="np-info"><b>${esc(it.name)}</b><span>${esc(it.by)}</span><span class="meta">YouTube</span></div></div>
@@ -1239,9 +1239,9 @@ function render() {
   } else if (v === "choice") {
     html = listHTML(OPTIONS[NAV.choice].map(o => ({ label: o[1], value: S[NAV.choice] === o[0] ? "✓" : null })), "choice");
   } else if (v === "ytsetup") {
-    html = !CAN_PLAY ? msgHTML("Use the SpotPod website", "Set up YouTube on isgoodtf2.github.io/IBPOD.")
+    html = !CAN_PLAY ? msgHTML("Use the YouPod website", "Set up YouTube on isgoodtf2.github.io/IBPOD.")
       : ytKey() ? msgHTML("YouTube is set up", "Search, Browse and For You are ready.")
-      : msgHTML("One-time setup", "Follow the steps under the SpotPod to add SpotPod's YouTube key.");
+      : msgHTML("One-time setup", "Follow the steps under the YouPod to add YouPod's YouTube key.");
   } else if (v === "foryou") {
     html = listHTML(FOR_YOU.map(f => ({ label: f.label, chev: true })), "foryou");
   } else if (v === "nowmenu") {
@@ -1250,7 +1250,7 @@ function render() {
     const F = NAV.find;
     if (F.loading) html = msgHTML("", "Searching YouTube…", true);
     else if (F.err) html = msgHTML(F.err[0], F.err[1]);
-    else if (!F.items) html = msgHTML("Search YouTube", "Type a song or artist in the search box next to the SpotPod, then press Search.");
+    else if (!F.items) html = msgHTML("Search YouTube", "Type a song or artist in the search box next to the YouPod, then press Search.");
     else if (!F.items.length) html = msgHTML("Nothing found", "Try different words.");
     else html = listHTML(F.items.map(it => ({ label: it.name })), "find");
   } else if (v === "reset") {
@@ -1259,9 +1259,9 @@ function render() {
     html = `<div class="hint-bar">Deletes your playlists, settings and history from this browser.</div>` + listHTML([{ label: "Cancel" }, { label: "Delete everything" }], "wipe");
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
-      <p><b>SpotPod</b> · version 4</p>
+      <p><b>YouPod</b> · version 4</p>
       <p>Created by <b>Aaron</b>.</p>
-      <p>Music plays through YouTube. The video plays on the screen next to the SpotPod, and the SpotPod is the remote.</p>
+      <p>Music plays through YouTube. The video plays on the screen next to the YouPod, and the YouPod is the remote.</p>
       <p class="dim">Playlists: ${playlists.length} · Songs played: ${history.length}</p>
       <p class="dim">Your playlists and settings are saved in this browser.</p>
     </div></div>`;
@@ -1270,8 +1270,8 @@ function render() {
       <p><b>Spin the wheel</b> to scroll. <b>Centre button</b> picks. <b>MENU</b> goes back.</p>
       <p><b>⏯</b> plays or pauses. <b>⏮ ⏭</b> move through the list you're playing. <b>Hold</b> them to rewind or fast-forward.</p>
       <p><b>Now Playing:</b> spin the wheel for volume. The centre button opens Rewind, Forward, Scrub, Add to Playlist and Songs Like This.</p>
-      <p><b>The video</b> plays on the screen next to the SpotPod. YouTube's rules say it has to stay visible.</p>
-      <p><b>For You</b> learns from the songs you play on SpotPod.</p>
+      <p><b>The video</b> plays on the screen next to the YouPod. YouTube's rules say it has to stay visible.</p>
+      <p><b>For You</b> learns from the songs you play on YouPod.</p>
       <p><b>Make a playlist:</b> Playlists → + New Playlist, then add songs from Now Playing.</p>
       <p><b>Battery:</b> click the charging port on the bottom edge to plug in or unplug.</p>
       <p class="dim">Playlists and settings save in this browser. Settings → Terms & Privacy explains more, and Settings → Delete My Data wipes them.</p>
@@ -1438,8 +1438,8 @@ function showBattery() {
     $("#deadFill").style.width = Math.max(4, lvl) + "%";
     $("#deadBolt").toggleAttribute("hidden", !BAT.charging);
     $("#deadText").innerHTML = BAT.charging
-      ? `<b>Charging… ${pct}%</b>SpotPod turns on at ${WAKE_AT}%.`
-      : `<b>Battery empty</b>Click the charging port on the bottom of the SpotPod to charge it.`;
+      ? `<b>Charging… ${pct}%</b>YouPod turns on at ${WAKE_AT}%.`
+      : `<b>Battery empty</b>Click the charging port on the bottom of the YouPod to charge it.`;
     $("#hdrState").textContent = "";
     $("#stage").dataset.playing = false;
   }
@@ -1447,12 +1447,12 @@ function showBattery() {
 setInterval(batteryTick, 1000);
 window.addEventListener("pagehide", saveBattery);
 
-/* ---------- the search box under the SpotPod ---------- */
+/* ---------- the search box under the YouPod ---------- */
 $("#findPanel").addEventListener("submit", async e => {
   e.preventDefault();
   const q = $("#findIn").value.trim();
   if (!q) { $("#findMsg").textContent = "Type a song or artist first."; return; }
-  if (BAT.dead) { $("#findMsg").textContent = "The SpotPod's battery is empty. Charge it first."; return; }
+  if (BAT.dead) { $("#findMsg").textContent = "The YouPod's battery is empty. Charge it first."; return; }
   $("#findIn").blur();   // so the arrow keys move through the results
   $("#findMsg").textContent = "";
   const F = NAV.find = { label: "Search", items: null, loading: true, q };
@@ -1555,7 +1555,7 @@ function select() {
     if (it) { playQueue(L.label, L.items, s, false); return; }
   } else if (v === "pls") {
     openPl(s === 0 ? newPlaylist() : s - 1);
-    if (s === 0) toast("New playlist made. Rename it next to the SpotPod.");
+    if (s === 0) toast("New playlist made. Rename it next to the YouPod.");
   } else if (v === "pl") {
     const pl = curPl();
     if (pl && pl.items.length) { playQueue(pl.name, pl.items, s === 0 ? 0 : s - 1, s === 0); return; }

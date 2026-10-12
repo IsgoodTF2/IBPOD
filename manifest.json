@@ -1,6 +1,6 @@
 {
-  "name": "SpotPod",
-  "short_name": "SpotPod",
+  "name": "YouPod",
+  "short_name": "YouPod",
   "description": "A click-wheel music player for your Spotify playlists.",
   "start_url": "./",
   "scope": "./",
