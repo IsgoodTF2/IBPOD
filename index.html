@@ -313,6 +313,7 @@ body.no-glow .glow-layer { display: none; }
   pointer-events: none;
 }
 .toast.on { opacity: 1; }
+.toast.long { white-space: normal; width: 88%; text-align: center; line-height: 1.35; }
 
 /* backlight switches off after a while (Settings → Backlight) */
 .dimmer { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 7; transition: opacity .6s; }
@@ -813,22 +814,87 @@ async function loadList(L) {
 /* ---------- YouTube's player ---------- */
 const PLY = { current: null, state: null, queue: null };
 let yt = null, ytWait = null, ytFails = 0;
+const YT_BLOCKED = "YouTube is being blocked on this device, maybe by an ad blocker. Turn it off for this site, then refresh.";
 function ytPlayerReady() {
-  if (!ytWait) ytWait = new Promise((resolve, reject) => {
+  if (!ytWait) ytWait = new Promise(resolve => {
+    let done = false, ready = false;
+    // if YouTube's player code is blocked (ad blockers often do this), drive YouTube's embed ourselves
+    const fallback = () => { if (done) return; done = true; yt = makeDirectPlayer(); resolve(yt); };
     window.onYouTubeIframeAPIReady = () => {
+      if (done) return;
+      done = true;
       yt = new YT.Player("ytPlayer", {
         host: "https://www.youtube-nocookie.com",   // YouTube's privacy-enhanced mode
         width: "100%", height: "100%",
         playerVars: { playsinline: 1, rel: 0 },
-        events: { onReady: () => resolve(yt), onStateChange: ytStateChange, onError: ytError },
+        events: { onReady: () => { ready = true; resolve(yt); }, onStateChange: ytStateChange, onError: ytError },
       });
+      setTimeout(() => { if (!ready) toast(YT_BLOCKED, 6000); }, 10000);
     };
     const sc = document.createElement("script");
     sc.src = "https://www.youtube.com/iframe_api";
-    sc.onerror = () => { ytWait = null; reject(new Error("YouTube's player didn't load. Check your internet.")); };
+    sc.onerror = fallback;
+    setTimeout(fallback, 8000);
     document.head.appendChild(sc);
   });
   return ytWait;
+}
+// The same controls as YT.Player, sent to YouTube's embed with postMessage
+function makeDirectPlayer() {
+  const ORIGIN = "https://www.youtube-nocookie.com";
+  let frame = null, heard = false, st = -1, cur = 0, dur = 0, vol = 100, hello = null, watchdog = null;
+  const post = msg => { if (frame && frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(msg), ORIGIN); };
+  const send = (func, args = []) => post({ event: "command", func, args, id: 1, channel: "widget" });
+  const setState = n => { if (n === st) return; st = n; ytStateChange({ data: n }); };
+  window.addEventListener("message", e => {
+    if (!frame || e.source !== frame.contentWindow) return;
+    let d;
+    try { d = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch (err) { return; }
+    if (!d || !d.event) return;
+    if (!heard) {
+      heard = true;
+      clearInterval(hello); clearTimeout(watchdog);
+      send("addEventListener", ["onStateChange"]);
+      send("addEventListener", ["onError"]);
+      send("setVolume", [vol]);
+    }
+    const info = d.info;
+    if (d.event === "infoDelivery" && info) {
+      if (typeof info.currentTime === "number") cur = info.currentTime;
+      if (typeof info.duration === "number") dur = info.duration;
+      if (typeof info.playerState === "number") setState(info.playerState);
+    } else if (d.event === "onStateChange" && typeof info === "number") setState(info);
+    else if (d.event === "onError") ytError({ data: info });
+  });
+  return {
+    loadVideoById(id) {
+      cur = 0; dur = 0;
+      if (frame && heard) { send("loadVideoById", [id]); return; }
+      const box = document.getElementById("ytPlayer");
+      frame = document.createElement("iframe");
+      frame.id = "ytPlayer";
+      frame.title = "YouTube video player";
+      frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+      frame.src = `${ORIGIN}/embed/${encodeURIComponent(id)}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}&widget_referrer=${encodeURIComponent(location.href)}`;
+      frame.referrerPolicy = "strict-origin-when-cross-origin";   // YouTube needs to know which site is embedding it
+      frame.addEventListener("load", () => {
+        // keep saying hello until the embed answers, like YouTube's own code does
+        clearInterval(hello);
+        hello = setInterval(() => post({ event: "listening", id: 1, channel: "widget" }), 250);
+      });
+      box.replaceWith(frame);
+      heard = false;
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => { clearInterval(hello); if (!heard) toast(YT_BLOCKED, 6000); }, 10000);
+    },
+    playVideo: () => send("playVideo"),
+    pauseVideo: () => send("pauseVideo"),
+    seekTo(s, ahead) { cur = s; send("seekTo", [s, ahead !== false]); },
+    setVolume(v) { vol = v; send("setVolume", [v]); },
+    getPlayerState: () => st,
+    getCurrentTime: () => cur,
+    getDuration: () => dur,
+  };
 }
 function ytSync() {
   if (!yt || !yt.getPlayerState) return;
@@ -848,7 +914,7 @@ function ytError(e) {
 const volPct = () => Math.round(Math.pow(S.vol / 16, 1.5) * 100);
 function ytPlay(item) {
   $("#tv").hidden = false;
-  ytPlayerReady().then(p => { p.setVolume(volPct()); p.loadVideoById(ytId(item)); }, err => toast(err.message));
+  ytPlayerReady().then(p => { p.setVolume(volPct()); p.loadVideoById(ytId(item)); });
 }
 
 // picking a song opens Now Playing; skipping (⏭, or a song ending) just plays
@@ -1114,12 +1180,13 @@ function toggleShuffle() {
 }
 
 let toastTimer;
-function toast(msg) {
+function toast(msg, ms = 1500) {
   const el = $("#toast");
   el.textContent = msg;
+  el.classList.toggle("long", msg.length > 40);
   el.classList.add("on");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("on"), 1500);
+  toastTimer = setTimeout(() => el.classList.remove("on"), ms);
 }
 
 /* =========================================================
