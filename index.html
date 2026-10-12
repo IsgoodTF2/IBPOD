@@ -578,7 +578,7 @@ kbd {
   </div>
 
   <section class="panel setup" id="setupPanel" hidden aria-label="Set up Spotify Premium">
-    <b>Set up Spotify Premium (one time)</b>
+    <b>Set up Spotify for IBPOD (owner only, one time)</b>
     <ol>
       <li>Go to <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and log in with Spotify.</li>
       <li>Click <b>Create app</b>. Name it <b>IBPOD</b>. For <b>Redirect URI</b>, add <code id="redirectUri"></code> <button type="button" class="ghost" id="copyRedirect">Copy</button></li>
@@ -806,6 +806,7 @@ function onPlayback(d) {
 
 function playItem(item) {
   if (BAT.dead) return;
+  if (item.uri === LIKED.uri && !premiumOn()) { toast("Liked Songs play with Spotify Premium"); return; }
   PLY.current = item; PLY.state = null; PLY.preview = false; PLY.nearEnd = false; PLY.embedErr = false;
   if (view() !== "now") NAV.stack.push("now");
   render();
@@ -846,7 +847,9 @@ const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, "")
 const SCOPES = "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read";
 const PREM = { tokens: load("ibpod-spotify", null), ready: false, deviceId: null, player: null, track: null, me: null, err: null, pos: 0, dur: 0, paused: true, at: 0, volUntil: 0, shownUri: null };
 if (PREM.tokens && (typeof PREM.tokens.access !== "string" || typeof PREM.tokens.refresh !== "string")) PREM.tokens = null;
-const premiumOn = () => CAN_EMBED && !!PREM.tokens && !!clientId();
+// connected: someone is logged into their own Spotify. premiumOn: and it's Premium, so IBPOD plays full songs itself
+const connected = () => CAN_EMBED && !!PREM.tokens && !!clientId();
+const premiumOn = () => connected() && !PREM.free;
 const LIKED = { name: "Liked Songs", by: "You", type: "Songs", uri: "spotify:liked", url: "https://open.spotify.com/collection/tracks" };
 
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -904,15 +907,21 @@ async function api(path, opts = {}) {
   return j;
 }
 function spotifyLogout(msg) {
-  PREM.tokens = null; PREM.ready = false; PREM.me = null; PREM.track = null;
+  PREM.tokens = null; PREM.ready = false; PREM.me = null; PREM.track = null; PREM.free = false;
   try { localStorage.removeItem("ibpod-spotify"); } catch (e) {}
   if (PREM.player) { try { PREM.player.disconnect(); } catch (e) {} PREM.player = null; }
   if (msg) toast(msg);
   render();
 }
 
-function startPremium() {
-  if (!premiumOn() || PREM.player) return;
+async function startPremium() {
+  if (!connected() || PREM.player) return;
+  try {
+    PREM.me = await api("/me");
+    PREM.free = !!(PREM.me && PREM.me.product && PREM.me.product !== "premium");
+  } catch (e) {}
+  render();
+  if (!connected() || PREM.free) return;   // Free accounts: playlists yes, Spotify's full player no
   window.onSpotifyWebPlaybackSDKReady = () => {
     const p = new Spotify.Player({ name: "IBPOD", getOAuthToken: cb => accessToken().then(cb, () => {}), volume: S.vol / 16 });
     PREM.player = p;
@@ -921,7 +930,13 @@ function startPremium() {
     p.addListener("player_state_changed", onPremiumState);
     p.addListener("initialization_error", ({ message }) => { PREM.err = "This browser can't play Spotify here (" + message + ")."; render(); });
     p.addListener("authentication_error", () => spotifyLogout("Spotify login expired. Connect again in Settings."));
-    p.addListener("account_error", () => { PREM.err = "Spotify says this account isn't Premium."; spotifyLogout(); });
+    p.addListener("account_error", () => {
+      PREM.free = true; PREM.ready = false;
+      try { p.disconnect(); } catch (e) {}
+      PREM.player = null;
+      toast("Spotify Free: songs play as previews");
+      render();
+    });
     p.addListener("playback_error", ({ message }) => toast("Spotify: " + message));
     p.connect();
   };
@@ -929,11 +944,6 @@ function startPremium() {
   sc.src = "https://sdk.scdn.co/spotify-player.js";
   sc.onerror = () => { PREM.err = "Spotify's player didn't load. Check your internet."; render(); };
   document.head.appendChild(sc);
-  api("/me").then(me => {
-    PREM.me = me;
-    if (me && me.product && me.product !== "premium") PREM.err = "This Spotify account isn't Premium, so IBPOD can't play full songs with it.";
-    render();
-  }).catch(() => {});
 }
 function onPremiumState(st) {
   if (!st) return;
@@ -1116,11 +1126,15 @@ const S = { ...DEFAULTS };
 const saveSettings = () => store("tackle-ipod", S);
 
 const accountRows = () => PREM.tokens
-  ? [{ label: PREM.me ? `Logged in: ${PREM.me.display_name || PREM.me.id}` : PREM.ready ? "Connected" : "Connecting…", act: null }, { label: "Disconnect", act: "logout" }]
-  : [{ label: "Connect Spotify Premium", act: "login" }];
+  ? [
+      { label: PREM.me ? `Logged in: ${PREM.me.display_name || PREM.me.id}` : "Connecting…", act: null },
+      { label: PREM.free ? "Spotify Free: previews" : "Spotify Premium: full songs", act: null },
+      { label: "Disconnect", act: "logout" },
+    ]
+  : [{ label: "Connect your Spotify", act: "login" }];
 
 const settingsRows = () => [
-  { label: "Spotify Account", go: "account", value: () => premiumOn() ? "Connected" : "Off" },
+  { label: "Spotify Account", go: "account", value: () => connected() ? (PREM.free ? "Free" : "Premium") : "Off" },
   { label: "Body Colour", key: "body" },
   { label: "Wheel", key: "wheel" },
   { label: "Screen", key: "theme" },
@@ -1240,12 +1254,13 @@ const EQ_GUIDES = [
 const menuItems = () => [
   { label: "Now Playing", go: "now" },
   { label: "Playlists", go: "pls" },
-  { label: "My Spotify", list: premiumOn() ? { label: "My Spotify", items: null, live: true } : { label: "My Spotify", items: MY_SPOTIFY } },
+  connected() ? { label: "My Spotify", list: { label: "My Spotify", items: null, live: true } } : { label: "My Spotify", go: "account" },
   { label: "Browse", go: "browse" },
   { label: "Shuffle", value: S.shuffle ? "On" : "Off", act: toggleShuffle },
   { label: "Settings", go: "settings" },
 ];
 const browseItems = () => [
+  { label: "Aaron's Playlists", list: { label: "Aaron's Playlists", items: MY_SPOTIFY } },
   ...SP_LISTS.map(l => ({ label: l.label, list: l })),
   ...(links.length ? [{ label: "My Links", list: { label: "My Links", items: links } }] : []),
   ...(IN_CLAUDE ? [{ label: "Search Spotify", go: "search" }] : []),
@@ -1348,16 +1363,19 @@ function render() {
     html = listHTML(OPTIONS[NAV.choice].map(o => ({ label: o[1], value: S[NAV.choice] === o[0] ? "✓" : null })), "choice");
   } else if (v === "account") {
     const rows = accountRows();
-    if (!CAN_EMBED) html = msgHTML("Use your IBPOD website", "Spotify Premium mode works on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
-    else if (!clientId()) html = msgHTML("One-time setup", "Follow the steps under the IBPOD to connect Spotify Premium.");
-    else html = (PREM.err ? `<div class="hint-bar">${esc(PREM.err)}</div>` : "") + listHTML(rows.map(r => ({ label: r.label })), "account");
+    if (!CAN_EMBED) html = msgHTML("Use the IBPOD website", "Logging into Spotify works on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
+    else if (!clientId()) html = msgHTML("Not set up yet", "IBPOD's owner needs to finish the Spotify setup under the IBPOD.");
+    else {
+      const hint = PREM.err || (!PREM.tokens ? "Log in to see your own playlists. Premium plays full songs." : "");
+      html = (hint ? `<div class="hint-bar">${esc(hint)}</div>` : "") + listHTML(rows.map(r => ({ label: r.label })), "account");
+    }
   } else if (v === "reset") {
     html = listHTML([{ label: "Cancel" }, { label: "Reset all settings" }], "reset");
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
       <p><b>IBPOD</b> · version 3</p>
       <p>Created by <b>Aaron</b>, built with Claude.</p>
-      <p>Music plays through Spotify. Connect Spotify Premium in Settings → Spotify Account for full songs, all your playlists and volume on the wheel.</p>
+      <p>Music plays through Spotify. Log in with My Spotify to see your own playlists. With Premium you also get full songs and volume on the wheel.</p>
       <p class="dim">Playlists: ${playlists.length} · Saved links: ${links.length}</p>
       <p class="dim">Your playlists and settings are saved in this browser.</p>
     </div></div>`;
