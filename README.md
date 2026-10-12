@@ -12,3 +12,5 @@ A click-wheel music player for your Spotify playlists, in your browser.
 Log into Spotify in the same browser to hear full songs instead of 30-second previews.
 
 Created by Aaron, built with Claude. Spotify is a trademark of Spotify AB.
+
+If you see a 404, wait a minute and refresh: GitHub Pages can take a moment after an update.
