@@ -391,6 +391,17 @@ kbd {
 .sp-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sp-link svg { width: 16px; height: 16px; flex-shrink: 0; fill: currentColor; }
 
+/* "log in for full songs" helper */
+.sp-login {
+  width: min(100%, 26rem);
+  background: rgba(29,185,84,.1); border: 1px solid rgba(29,185,84,.45); border-radius: 12px;
+  padding: 12px 14px; font-size: 13px; line-height: 1.45;
+}
+.sp-login p { margin: 0 0 6px; }
+.sp-login ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; }
+.sp-login a { color: #1ed760; font-weight: 700; }
+.sp-login a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 3px; }
+
 /* spotify player inside the screen (only on a normal website) */
 .sp-host { position: absolute; top: 20px; left: 0; right: 0; bottom: 0; background: #121212; display: flex; flex-direction: column; z-index: 3; }
 #spEmbed, .sp-host iframe { width: 100%; height: 152px; border: 0; display: block; flex-shrink: 0; }
@@ -532,6 +543,14 @@ kbd {
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5a10.5 10.5 0 1 0 0 21 10.5 10.5 0 0 0 0-21zm4.8 15.2a.65.65 0 0 1-.9.2c-2.5-1.5-5.6-1.9-9.3-1a.65.65 0 1 1-.3-1.3c4-.9 7.5-.5 10.3 1.2.3.2.4.6.2.9zm1.3-2.9a.8.8 0 0 1-1.1.3c-2.8-1.7-7.1-2.2-10.5-1.2a.8.8 0 1 1-.5-1.6c3.8-1.2 8.6-.6 11.8 1.4.4.2.5.7.3 1.1zm.1-3c-3.4-2-9-2.2-12.2-1.2a1 1 0 1 1-.6-1.9c3.7-1.1 9.9-.9 13.8 1.4a1 1 0 0 1-1 1.7z"/></svg>
     <span id="spLinkText">Open in Spotify</span>
   </a>
+
+  <div class="sp-login" id="spLogin" hidden>
+    <p><b>You're hearing 30-second previews.</b> Spotify only plays full songs when you're logged in, in this same browser.</p>
+    <ol>
+      <li><a href="https://accounts.spotify.com/login" target="_blank" rel="noopener">Log into Spotify</a> (opens a new tab)</li>
+      <li>Come back here and reload IBPOD</li>
+    </ol>
+  </div>
 
   <section class="panel color-panel" id="colorPanel" hidden aria-label="Custom body colour">
     <label for="customColor">Pick any body colour</label>
@@ -701,7 +720,7 @@ function addToPlaylist(i, item) {
 }
 
 /* ---------- Spotify's player ---------- */
-const PLY = { current: null, state: null, embedErr: false, queue: null, nearEnd: false };
+const PLY = { current: null, state: null, embedErr: false, queue: null, nearEnd: false, preview: false };
 let spCtrl = null, spApi = null;
 
 function loadSpotifyApi() {
@@ -737,6 +756,8 @@ async function loadEmbed(item) {
 // a custom playlist moves on by itself after a single song ends
 function onPlayback(d) {
   PLY.state = d;
+  // Spotify only gives 30-second previews to people who aren't logged in
+  if (d && d.duration > 0) PLY.preview = d.duration <= 31000;
   const cur = PLY.current;
   if (PLY.queue && cur && cur.uri.startsWith("spotify:track:") && d && d.duration > 0) {
     if (!d.isPaused && d.position >= d.duration - 1500) PLY.nearEnd = true;
@@ -747,7 +768,7 @@ function onPlayback(d) {
 
 function playItem(item) {
   if (BAT.dead) return;
-  PLY.current = item; PLY.state = null; PLY.nearEnd = false; PLY.embedErr = false;
+  PLY.current = item; PLY.state = null; PLY.preview = false; PLY.nearEnd = false; PLY.embedErr = false;
   if (view() !== "now") NAV.stack.push("now");
   render();
   if (CAN_EMBED) loadEmbed(item);
@@ -1123,7 +1144,9 @@ function updateNowBits() {
   // Spotify only shows public playlists inside other websites
   const tip = !st && PLY.current && MINE.has(PLY.current.uri)
     ? "“Page not found”? Make this playlist public in Spotify"
+    : PLY.preview ? "Preview only: log into Spotify for full songs"
     : "Centre button: add to a playlist";
+  $("#spLogin").hidden = !(CAN_EMBED && PLY.current && PLY.preview);
   $("#spCap").innerHTML = `<span>${esc(line)}</span><span class="dim">${esc(tip)}</span>`;
   $("#hdrState").textContent = PLY.current && st ? (st.isPaused ? "❚❚" : "▶") : "";
   $("#stage").dataset.playing = !!(st && !st.isPaused);
