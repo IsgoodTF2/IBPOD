@@ -691,8 +691,10 @@ function store(key, value) {
    ========================================================= */
 const IN_CLAUDE = !!(window.claude && typeof window.claude.use === "function");
 const CAN_PLAY = !IN_CLAUDE;   // claude.ai can't show other websites' players
-const YT_API_KEY = "";          // from console.cloud.google.com, locked to this website
+const YT_API_KEY = "AIzaSyBCTgmucw9UWVLcB6qGLEYpmq1Zhag9aLg";          // from console.cloud.google.com, locked to this website
 const ytKey = () => YT_API_KEY || String(load("spotpod-yt-key", "") || "");
+// the key only works from SpotPod's own pages, so tell Google the full page address
+const YT_FETCH = { referrerPolicy: "no-referrer-when-downgrade" };
 
 // YouTube titles arrive with HTML codes like &amp; – turn them back into text
 const decode = s => { const t = document.createElement("textarea"); t.innerHTML = String(s || ""); return t.value; };
@@ -745,7 +747,7 @@ async function ytSearch(q, max = 25) {
   if (c && Date.now() - c.t < 12 * 3600000 && Array.isArray(c.items)) return c.items.map(cleanItem).filter(Boolean);
   const u = new URL("https://www.googleapis.com/youtube/v3/search");
   u.search = new URLSearchParams({ part: "snippet", type: "video", videoEmbeddable: "true", videoCategoryId: "10", safeSearch: "moderate", maxResults: String(max), q, key: ytKey() }).toString();
-  const r = await fetch(u);
+  const r = await fetch(u, YT_FETCH);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     const reason = j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason;
@@ -932,7 +934,7 @@ async function refreshSaved() {
       for (let i = 0; i < ids.length; i += 50) {
         const u = new URL("https://www.googleapis.com/youtube/v3/videos");
         u.search = new URLSearchParams({ part: "snippet", id: ids.slice(i, i + 50).join(","), key: ytKey() }).toString();
-        const r = await fetch(u);
+        const r = await fetch(u, YT_FETCH);
         if (!r.ok) throw new Error("refresh failed");
         ((await r.json()).items || []).forEach(v => { fresh[v.id] = { name: decode(v.snippet.title), by: decode(v.snippet.channelTitle).replace(/ - Topic$/, "") }; });
       }
