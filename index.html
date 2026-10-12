@@ -278,6 +278,20 @@ body.no-glow .glow-layer { display: none; }
 .np-info b { font-size: 13px; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .np-info span { font-size: 11px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-info .meta { color: var(--screen-dim); font-size: 10px; font-variant-numeric: tabular-nums; }
+/* progress + volume (Premium Now Playing) */
+.np-main .cover { width: 80px; height: 80px; object-fit: cover; border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+.np-main img.cover { background: #222; }
+.np-foot { margin-top: auto; position: relative; height: 26px; }
+.np-foot > div { position: absolute; inset: 0; transition: opacity .15s; }
+.np-foot .vol { opacity: 0; display: flex; align-items: center; gap: 6px; }
+.np-foot.show-vol .vol { opacity: 1; }
+.np-foot.show-vol .prog { opacity: 0; }
+.bar { height: 9px; border: 1px solid var(--chev); border-radius: 1px; background: linear-gradient(var(--hdr-1), var(--hdr-2)); overflow: hidden; }
+.vol .bar { flex: 1; }
+.bar i { display: block; height: 100%; width: 0; background: linear-gradient(var(--hi-1), var(--hi-2)); }
+.times { display: flex; justify-content: space-between; font-size: 10px; margin-top: 3px; font-variant-numeric: tabular-nums; color: var(--soft); }
+.vol svg { width: 12px; height: 12px; fill: var(--soft); flex-shrink: 0; }
+
 /* help */
 .help { height: 100%; overflow: hidden; }
 .help-inner { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; line-height: 1.35; transition: transform .12s ease-out; }
@@ -391,7 +405,18 @@ kbd {
 .sp-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sp-link svg { width: 16px; height: 16px; flex-shrink: 0; fill: currentColor; }
 
+/* Spotify Premium setup */
+.setup { font-size: 13px; line-height: 1.5; }
+.setup ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.setup a { color: #1ed760; font-weight: 700; }
+.setup code { font-size: 12px; background: rgba(255,255,255,.08); border-radius: 5px; padding: 1px 5px; word-break: break-all; }
+.setup .row { display: flex; gap: 8px; }
+.setup .row input { flex: 1; }
+.setup .go { background: var(--spotify); color: #06200f; border: 0; }
+.setup p { margin: 0; color: var(--muted); font-size: 12px; min-height: 1.2em; }
+
 /* "log in for full songs" helper */
+.hint-bar { background: #fff3cd; color: #5c4400; font-size: 10.5px; line-height: 1.3; padding: 4px 8px; }
 .sp-login {
   width: min(100%, 26rem);
   background: rgba(29,185,84,.1); border: 1px solid rgba(29,185,84,.45); border-radius: 12px;
@@ -552,6 +577,18 @@ kbd {
     </ol>
   </div>
 
+  <section class="panel setup" id="setupPanel" hidden aria-label="Set up Spotify Premium">
+    <b>Set up Spotify Premium (one time)</b>
+    <ol>
+      <li>Go to <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and log in with Spotify.</li>
+      <li>Click <b>Create app</b>. Name it <b>IBPOD</b>. For <b>Redirect URI</b>, add <code id="redirectUri"></code> <button type="button" class="ghost" id="copyRedirect">Copy</button></li>
+      <li>Tick <b>Web API</b> and <b>Web Playback SDK</b>, agree to the terms and click <b>Save</b>.</li>
+      <li>Open the app's <b>Settings</b>, copy the <b>Client ID</b> and paste it here:</li>
+    </ol>
+    <div class="row"><input id="clientIdIn" type="text" placeholder="Client ID (32 letters and numbers)" autocomplete="off" aria-label="Client ID"><button type="button" class="go" id="clientIdSave">Save</button></div>
+    <p id="clientIdMsg" role="status"></p>
+  </section>
+
   <section class="panel color-panel" id="colorPanel" hidden aria-label="Custom body colour">
     <label for="customColor">Pick any body colour</label>
     <input id="customColor" type="color" value="#3d7bfd">
@@ -603,6 +640,7 @@ const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60
 /* ---------- the wheel's little click sound ---------- */
 let ctx, clickBuf;
 function initAudio() {
+  if (typeof PREM !== "undefined" && PREM.player && PREM.player.activateElement) { try { PREM.player.activateElement(); } catch (e) {} }
   if (ctx) { if (ctx.state === "suspended") ctx.resume(); return; }
   try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
   const n = Math.floor(ctx.sampleRate * 0.004);
@@ -757,9 +795,9 @@ async function loadEmbed(item) {
 function onPlayback(d) {
   PLY.state = d;
   // Spotify only gives 30-second previews to people who aren't logged in
-  if (d && d.duration > 0) PLY.preview = d.duration <= 31000;
+  if (d && d.duration > 0) PLY.preview = !premiumOn() && d.duration <= 31000;
   const cur = PLY.current;
-  if (PLY.queue && cur && cur.uri.startsWith("spotify:track:") && d && d.duration > 0) {
+  if (!premiumOn() && PLY.queue && cur && cur.uri.startsWith("spotify:track:") && d && d.duration > 0) {
     if (!d.isPaused && d.position >= d.duration - 1500) PLY.nearEnd = true;
     else if (PLY.nearEnd && (d.isPaused || d.position < 1500)) { PLY.nearEnd = false; queueStep(1); return; }
   }
@@ -771,7 +809,8 @@ function playItem(item) {
   PLY.current = item; PLY.state = null; PLY.preview = false; PLY.nearEnd = false; PLY.embedErr = false;
   if (view() !== "now") NAV.stack.push("now");
   render();
-  if (CAN_EMBED) loadEmbed(item);
+  if (premiumOn()) premiumPlay(item);
+  else if (CAN_EMBED) loadEmbed(item);
 }
 // the play order: in order, or shuffled with the chosen one first
 function makeOrder(n, start, fromTop) {
@@ -794,6 +833,196 @@ function queueStep(d) {
   playItem(q.items[q.order[q.pos]]);
   return true;
 }
+
+/* =========================================================
+   SPOTIFY PREMIUM MODE
+   With Spotify Premium, IBPOD logs into Spotify and becomes a real Spotify
+   player (Spotify's Web Playback SDK): full songs, private playlists,
+   shuffle and skip inside playlists, and volume on the wheel.
+   ========================================================= */
+const SPOTIFY_CLIENT_ID = "";   // the IBPOD app's Client ID from developer.spotify.com (safe to share)
+const clientId = () => SPOTIFY_CLIENT_ID || String(load("ibpod-client-id", "") || "");
+const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, "");
+const SCOPES = "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read";
+const PREM = { tokens: load("ibpod-spotify", null), ready: false, deviceId: null, player: null, track: null, me: null, err: null, pos: 0, dur: 0, paused: true, at: 0, volUntil: 0, shownUri: null };
+if (PREM.tokens && (typeof PREM.tokens.access !== "string" || typeof PREM.tokens.refresh !== "string")) PREM.tokens = null;
+const premiumOn = () => CAN_EMBED && !!PREM.tokens && !!clientId();
+const LIKED = { name: "Liked Songs", by: "You", type: "Songs", uri: "spotify:liked", url: "https://open.spotify.com/collection/tracks" };
+
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const randomStr = n => b64url(crypto.getRandomValues(new Uint8Array(n))).slice(0, n);
+
+async function spotifyLogin() {
+  const verifier = randomStr(64), state = randomStr(16);
+  store("ibpod-pkce", { verifier, state });
+  const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  const u = new URL("https://accounts.spotify.com/authorize");
+  u.search = new URLSearchParams({ client_id: clientId(), response_type: "code", redirect_uri: REDIRECT, code_challenge_method: "S256", code_challenge: challenge, scope: SCOPES, state }).toString();
+  location.href = u.toString();
+}
+async function tokenRequest(params) {
+  const r = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: clientId(), ...params }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw { status: r.status, message: j.error_description || j.error || "login failed" };
+  PREM.tokens = { access: j.access_token, refresh: j.refresh_token || (PREM.tokens && PREM.tokens.refresh), expires: Date.now() + (j.expires_in || 3600) * 1000 };
+  store("ibpod-spotify", PREM.tokens);
+}
+// coming back from Spotify's login page
+async function finishLogin() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has("code") && !q.has("error")) return;
+  const pk = load("ibpod-pkce", null);
+  history.replaceState(null, "", REDIRECT);
+  try { localStorage.removeItem("ibpod-pkce"); } catch (e) {}
+  if (q.get("error")) { toast("Spotify login cancelled"); return; }
+  if (!pk || pk.state !== q.get("state")) { toast("Spotify login didn't match. Try again."); return; }
+  try {
+    await tokenRequest({ grant_type: "authorization_code", code: q.get("code"), redirect_uri: REDIRECT, code_verifier: pk.verifier });
+    toast("Spotify connected");
+  } catch (e) {
+    PREM.err = "Spotify login failed: " + e.message;
+    toast("Spotify login failed");
+  }
+}
+let refreshing = null;
+async function accessToken() {
+  if (!PREM.tokens) throw { status: 401, message: "not logged in" };
+  if (Date.now() < PREM.tokens.expires - 60000) return PREM.tokens.access;
+  if (!refreshing) refreshing = tokenRequest({ grant_type: "refresh_token", refresh_token: PREM.tokens.refresh }).finally(() => { refreshing = null; });
+  try { await refreshing; } catch (e) { spotifyLogout("Spotify logged you out. Connect again in Settings."); throw e; }
+  return PREM.tokens.access;
+}
+async function api(path, opts = {}) {
+  const r = await fetch("https://api.spotify.com/v1" + path, { ...opts, headers: { Authorization: "Bearer " + await accessToken(), "Content-Type": "application/json" } });
+  if (r.status === 204 || r.status === 202) return null;
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw { status: r.status, message: (j && j.error && j.error.message) || "Spotify error " + r.status };
+  return j;
+}
+function spotifyLogout(msg) {
+  PREM.tokens = null; PREM.ready = false; PREM.me = null; PREM.track = null;
+  try { localStorage.removeItem("ibpod-spotify"); } catch (e) {}
+  if (PREM.player) { try { PREM.player.disconnect(); } catch (e) {} PREM.player = null; }
+  if (msg) toast(msg);
+  render();
+}
+
+function startPremium() {
+  if (!premiumOn() || PREM.player) return;
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    const p = new Spotify.Player({ name: "IBPOD", getOAuthToken: cb => accessToken().then(cb, () => {}), volume: S.vol / 16 });
+    PREM.player = p;
+    p.addListener("ready", ({ device_id }) => { PREM.deviceId = device_id; PREM.ready = true; PREM.err = null; render(); });
+    p.addListener("not_ready", () => { PREM.ready = false; });
+    p.addListener("player_state_changed", onPremiumState);
+    p.addListener("initialization_error", ({ message }) => { PREM.err = "This browser can't play Spotify here (" + message + ")."; render(); });
+    p.addListener("authentication_error", () => spotifyLogout("Spotify login expired. Connect again in Settings."));
+    p.addListener("account_error", () => { PREM.err = "Spotify says this account isn't Premium."; spotifyLogout(); });
+    p.addListener("playback_error", ({ message }) => toast("Spotify: " + message));
+    p.connect();
+  };
+  const sc = document.createElement("script");
+  sc.src = "https://sdk.scdn.co/spotify-player.js";
+  sc.onerror = () => { PREM.err = "Spotify's player didn't load. Check your internet."; render(); };
+  document.head.appendChild(sc);
+  api("/me").then(me => {
+    PREM.me = me;
+    if (me && me.product && me.product !== "premium") PREM.err = "This Spotify account isn't Premium, so IBPOD can't play full songs with it.";
+    render();
+  }).catch(() => {});
+}
+function onPremiumState(st) {
+  if (!st) return;
+  const t = st.track_window && st.track_window.current_track;
+  if (t) {
+    const imgs = (t.album && t.album.images) || [];
+    const img = imgs.slice().sort((a, b) => Math.abs((a.width || 300) - 300) - Math.abs((b.width || 300) - 300))[0];
+    PREM.track = { name: t.name, artists: (t.artists || []).map(a => a.name).join(", "), album: t.album ? t.album.name : "", art: img ? img.url : "", uri: t.uri };
+  }
+  PREM.pos = st.position; PREM.dur = st.duration; PREM.paused = st.paused; PREM.at = performance.now();
+  onPlayback({ position: st.position, duration: st.duration, isPaused: st.paused });
+  if (view() === "now" && PREM.track && PREM.track.uri !== PREM.shownUri) render();
+}
+function waitReady(ms) {
+  return new Promise((res, rej) => {
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (PREM.ready) { clearInterval(iv); res(); }
+      else if (Date.now() - t0 > ms) { clearInterval(iv); rej({ message: "Spotify isn't ready yet. Try again in a moment." }); }
+    }, 200);
+  });
+}
+async function premiumPlay(item) {
+  try {
+    if (!PREM.ready) await waitReady(10000);
+    let body;
+    if (item.uri === LIKED.uri) {
+      const j = await api("/me/tracks?limit=50");
+      body = { uris: j.items.map(x => x.track && x.track.uri).filter(Boolean) };
+    } else if (item.uri.startsWith("spotify:track:")) {
+      // a list of songs plays as one Spotify queue, so ⏮ ⏭ and shuffle work on it
+      const q = PLY.queue;
+      const uris = q ? q.order.map(i => q.items[i].uri).filter(u => u.startsWith("spotify:track:")) : [item.uri];
+      body = { uris, offset: { uri: item.uri } };
+    } else body = { context_uri: item.uri };
+    await api(`/me/player/play?device_id=${PREM.deviceId}`, { method: "PUT", body: JSON.stringify(body) });
+    api(`/me/player/shuffle?state=${S.shuffle}&device_id=${PREM.deviceId}`, { method: "PUT" }).catch(() => {});
+  } catch (e) {
+    toast(e.status === 404 ? "Spotify couldn't find that" : e.status === 403 ? "Spotify won't play that here" : String(e.message || "Spotify couldn't play that"));
+  }
+}
+// your own playlists, live from Spotify (private ones too)
+async function loadMine(L) {
+  L.items = null; L.err = null; L.loading = true;
+  render();
+  try {
+    const j = await api("/me/playlists?limit=50");
+    L.items = [LIKED, ...(j.items || []).filter(Boolean).map(p => cleanItem({ uri: p.uri, name: p.name || "Playlist", by: p.owner && p.owner.display_name || "", type: "Playlist" })).filter(Boolean)];
+  } catch (e) {
+    L.err = ["Couldn't load your playlists", String(e.message || "Press the centre button to try again.")];
+  }
+  L.loading = false;
+  if (NAV.list === L) render();
+}
+// if an album cover can't load, show a plain colour square instead
+window.ibpodCoverFail = img => {
+  const d = document.createElement("div");
+  d.className = "art cover";
+  d.style.cssText = "--a1:#3be07a;--a2:#0d5c2c";
+  img.replaceWith(d);
+};
+const VOL_LO = '<svg viewBox="0 0 12 12"><path d="M1 4h2.5L7 1v10L3.5 8H1z"/></svg>';
+const VOL_HI = '<svg viewBox="0 0 12 12"><path d="M0 4h2.5L6 1v10L2.5 8H0z"/><path d="M7.5 3.2a4 4 0 0 1 0 5.6l-.7-.7a3 3 0 0 0 0-4.2zM9.3 1.4a6.5 6.5 0 0 1 0 9.2l-.7-.7a5.5 5.5 0 0 0 0-7.8z"/></svg>';
+// keeps the progress bar moving between Spotify's updates
+setInterval(() => {
+  if (view() !== "now" || !premiumOn() || !$("#prog")) return;
+  const pos = Math.min(PREM.dur, PREM.pos + (PREM.paused ? 0 : performance.now() - PREM.at));
+  $("#prog").style.width = (PREM.dur ? pos / PREM.dur * 100 : 0) + "%";
+  $("#tEl").textContent = fmt(pos / 1000);
+  $("#tRem").textContent = "-" + fmt((PREM.dur - pos) / 1000);
+  $("#volBar").style.width = (S.vol / 16 * 100) + "%";
+  $("#npFoot").classList.toggle("show-vol", performance.now() < PREM.volUntil);
+}, 250);
+
+/* setup panel: the Client ID from Spotify's developer dashboard */
+$("#redirectUri").textContent = REDIRECT;
+$("#copyRedirect").addEventListener("click", () => {
+  navigator.clipboard.writeText(REDIRECT).then(() => toast("Copied"), () => {
+    const r = document.createRange(); r.selectNodeContents($("#redirectUri"));
+    const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r);
+  });
+});
+$("#clientIdSave").addEventListener("click", () => {
+  const v = $("#clientIdIn").value.trim();
+  if (!/^[0-9a-f]{32}$/i.test(v)) { $("#clientIdMsg").textContent = "That doesn't look like a Client ID. It's 32 letters and numbers."; return; }
+  store("ibpod-client-id", v);
+  $("#clientIdMsg").textContent = "Saved. Now press the centre button on “Connect Spotify Premium”.";
+  render();
+});
 
 /* ---------- live Spotify search (claude.ai only) ---------- */
 const SP = { mcp: undefined, req: 0 };
@@ -858,7 +1087,7 @@ async function spSearch(L) {
    ========================================================= */
 const DEFAULTS = {
   body: "silver", custom: "#3d7bfd", wheel: "match", theme: "classic", hi: "blue", text: "normal",
-  clicker: true, vibrate: true, speed: "normal", backlight: 0, showPct: true, drain: "normal", glow: true, shuffle: false,
+  clicker: true, vibrate: true, speed: "normal", backlight: 0, showPct: true, drain: "normal", glow: true, shuffle: false, vol: 12,
 };
 // the choices for each setting: [saved value, what the screen says]
 const OPTIONS = {
@@ -882,10 +1111,16 @@ const S = { ...DEFAULTS };
     if (OPTIONS[k] ? OPTIONS[k].some(o => o[0] === v) : typeof v === typeof DEFAULTS[k]) S[k] = v;
   }
   if (!/^#[0-9a-f]{6}$/i.test(S.custom)) S.custom = DEFAULTS.custom;
+  S.vol = Math.max(0, Math.min(16, Math.round(S.vol)));
 }
 const saveSettings = () => store("tackle-ipod", S);
 
+const accountRows = () => PREM.tokens
+  ? [{ label: PREM.me ? `Logged in: ${PREM.me.display_name || PREM.me.id}` : PREM.ready ? "Connected" : "Connecting…", act: null }, { label: "Disconnect", act: "logout" }]
+  : [{ label: "Connect Spotify Premium", act: "login" }];
+
 const settingsRows = () => [
+  { label: "Spotify Account", go: "account", value: () => premiumOn() ? "Connected" : "Off" },
   { label: "Body Colour", key: "body" },
   { label: "Wheel", key: "wheel" },
   { label: "Screen", key: "theme" },
@@ -961,6 +1196,7 @@ function toggleShuffle() {
     const { order, pos } = makeOrder(q.items.length, q.order[q.pos], false);
     q.order = order; q.pos = pos;
   }
+  if (premiumOn() && PREM.ready) api(`/me/player/shuffle?state=${S.shuffle}&device_id=${PREM.deviceId}`, { method: "PUT" }).catch(() => {});
   toast(S.shuffle ? "Shuffle on" : "Shuffle off");
 }
 
@@ -1004,7 +1240,7 @@ const EQ_GUIDES = [
 const menuItems = () => [
   { label: "Now Playing", go: "now" },
   { label: "Playlists", go: "pls" },
-  { label: "My Spotify", list: { label: "My Spotify", items: MY_SPOTIFY } },
+  { label: "My Spotify", list: premiumOn() ? { label: "My Spotify", items: null, live: true } : { label: "My Spotify", items: MY_SPOTIFY } },
   { label: "Browse", go: "browse" },
   { label: "Shuffle", value: S.shuffle ? "On" : "Off", act: toggleShuffle },
   { label: "Settings", go: "settings" },
@@ -1026,6 +1262,7 @@ function rowCount(v) {
     case "settings": return settingsRows().length;
     case "choice": return OPTIONS[NAV.choice].length;
     case "reset": return 2;
+    case "account": return CAN_EMBED && clientId() ? accountRows().length : 0;
     case "list": return NAV.list && NAV.list.items ? NAV.list.items.length : 0;
     case "pls": case "addto": return playlists.length + 1;
     case "pl": return plRows(curPl()).length;
@@ -1057,7 +1294,7 @@ function render() {
   $("#hdrTitle").textContent = {
     menu: "IBPOD", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse",
     search: "Search Spotify", eq: "Equalizer", eqsteps: (EQ_GUIDES[NAV.eqGuide] || EQ_GUIDES[0]).label, list: NAV.list ? NAV.list.label : "Spotify", addto: "Add to Playlist", help: "Controls",
-    settings: "Settings", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings",
+    settings: "Settings", account: "Spotify Account", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings",
   }[v];
   let html = "";
   if (v === "menu") {
@@ -1079,6 +1316,18 @@ function render() {
       : msgHTML("This playlist is empty", "Play something, then press the centre button to add it here. You can also paste a Spotify link below the iPod.");
   } else if (v === "addto") {
     html = listHTML(plsRows(), "addto");
+  } else if (v === "now" && premiumOn()) {
+    const t = PREM.track, it = PLY.current;
+    PREM.shownUri = t ? t.uri : null;
+    if (PREM.err && !PREM.ready) html = msgHTML("Spotify problem", PREM.err);
+    else if (!t) html = msgHTML(it ? "Starting…" : "Nothing playing yet", it ? "Spotify is getting ready." : "Pick something from Playlists, My Spotify or Browse.", !!it);
+    else html = `<div class="np">
+      <div class="np-count">${esc(it ? it.name : "Spotify")}${S.shuffle ? " · Shuffle" : ""}</div>
+      <div class="np-main">${t.art ? `<img class="cover" src="${esc(t.art)}" alt="" onerror="ibpodCoverFail(this)">` : artHTML(itemArt())}<div class="np-info"><b>${esc(t.name)}</b><span>${esc(t.artists)}</span><span>${esc(t.album)}</span></div></div>
+      <div class="np-foot" id="npFoot">
+        <div class="prog"><div class="bar"><i id="prog"></i></div><div class="times"><span id="tEl">0:00</span><span id="tRem">-0:00</span></div></div>
+        <div class="vol">${VOL_LO}<div class="bar"><i id="volBar"></i></div>${VOL_HI}</div>
+      </div></div>`;
   } else if (v === "now") {
     const it = PLY.current;
     if (!it) html = msgHTML("Nothing playing yet", "Pick something from Playlists, My Spotify or Browse.");
@@ -1092,18 +1341,23 @@ function render() {
   } else if (v === "settings") {
     html = listHTML(settingsRows().map(r => ({
       label: r.label,
-      value: r.key ? optLabel(r.key, S[r.key]) : r.toggle ? (S[r.toggle] ? "On" : "Off") : null,
-      chev: !!r.go,
+      value: r.key ? optLabel(r.key, S[r.key]) : r.toggle ? (S[r.toggle] ? "On" : "Off") : r.value ? r.value() : null,
+      chev: !!r.go && !r.value,
     })), "settings");
   } else if (v === "choice") {
     html = listHTML(OPTIONS[NAV.choice].map(o => ({ label: o[1], value: S[NAV.choice] === o[0] ? "✓" : null })), "choice");
+  } else if (v === "account") {
+    const rows = accountRows();
+    if (!CAN_EMBED) html = msgHTML("Use your IBPOD website", "Spotify Premium mode works on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
+    else if (!clientId()) html = msgHTML("One-time setup", "Follow the steps under the IBPOD to connect Spotify Premium.");
+    else html = (PREM.err ? `<div class="hint-bar">${esc(PREM.err)}</div>` : "") + listHTML(rows.map(r => ({ label: r.label })), "account");
   } else if (v === "reset") {
     html = listHTML([{ label: "Cancel" }, { label: "Reset all settings" }], "reset");
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
       <p><b>IBPOD</b> · version 3</p>
       <p>Created by <b>Aaron</b>, built with Claude.</p>
-      <p>Music plays through Spotify. Log into Spotify in this browser for full songs.</p>
+      <p>Music plays through Spotify. Connect Spotify Premium in Settings → Spotify Account for full songs, all your playlists and volume on the wheel.</p>
       <p class="dim">Playlists: ${playlists.length} · Saved links: ${links.length}</p>
       <p class="dim">Your playlists and settings are saved in this browser.</p>
     </div></div>`;
@@ -1129,7 +1383,8 @@ function render() {
     </div></div>`;
   }
   $("#view").innerHTML = html;
-  $("#spHost").hidden = BAT.dead || !(v === "now" && CAN_EMBED && PLY.current && !PLY.embedErr);
+  $("#spHost").hidden = BAT.dead || premiumOn() || !(v === "now" && CAN_EMBED && PLY.current && !PLY.embedErr);
+  $("#setupPanel").hidden = !(v === "account" && CAN_EMBED && !clientId());
   updateNowBits();
   updateSpLink();
   updatePanel();
@@ -1146,7 +1401,7 @@ function updateNowBits() {
     ? "“Page not found”? Make this playlist public in Spotify"
     : PLY.preview ? "Preview only: log into Spotify for full songs"
     : "Centre button: add to a playlist";
-  $("#spLogin").hidden = !(CAN_EMBED && PLY.current && PLY.preview);
+  $("#spLogin").hidden = !(CAN_EMBED && PLY.current && PLY.preview && !premiumOn());
   $("#spCap").innerHTML = `<span>${esc(line)}</span><span class="dim">${esc(tip)}</span>`;
   $("#hdrState").textContent = PLY.current && st ? (st.isPaused ? "❚❚" : "▶") : "";
   $("#stage").dataset.playing = !!(st && !st.isPaused);
@@ -1321,6 +1576,7 @@ function saveBattery() { BAT.savedAt = Date.now(); store("tackle-ipod-battery", 
 function powerOff() {
   BAT.dead = true;
   if (spCtrl) { try { spCtrl.pause(); } catch (e) {} }
+  if (PREM.player) { try { PREM.player.pause(); } catch (e) {} }
   $("#spHost").hidden = true;
   saveBattery();
   showBattery();
@@ -1385,6 +1641,13 @@ function scroll(d) {
   if (BAT.dead) return;
   const v = view();
   clickSound();
+  if (v === "now" && premiumOn()) {
+    S.vol = Math.max(0, Math.min(16, S.vol + d));
+    saveSettings();
+    if (PREM.player) PREM.player.setVolume(S.vol / 16).catch(() => {});
+    PREM.volUntil = performance.now() + 1500;
+    return;
+  }
   if (v === "now") { if (PLY.current && CAN_EMBED) toast("Change the volume on your computer"); return; }
   if (v === "help" || v === "eqsteps" || v === "about") { NAV.help = Math.max(0, Math.min(9, NAV.help + d)); render(); return; }
   const n = rowCount(v);
@@ -1407,7 +1670,7 @@ function select() {
   const v = view(), s = sel(v);
   if (v === "menu") {
     const it = menuItems()[s];
-    if (it.list) openList(it.list);
+    if (it.list) { openList(it.list); if (it.list.live) { loadMine(it.list); return; } }
     else if (it.go) { if (it.go === "help") NAV.help = 0; push(it.go); }
     if (it.act) it.act();
   } else if (v === "settings") {
@@ -1429,6 +1692,10 @@ function select() {
       toast(`${OPTION_TITLES[NAV.choice]}: ${label}`);
       NAV.stack.pop();
     }
+  } else if (v === "account") {
+    const r = accountRows()[s];
+    if (r && r.act === "login") { toast("Opening Spotify…"); spotifyLogin(); return; }
+    if (r && r.act === "logout") { spotifyLogout("Spotify disconnected"); NAV.stack.pop(); }
   } else if (v === "reset") {
     if (s === 1) {
       Object.assign(S, DEFAULTS);
@@ -1453,6 +1720,7 @@ function select() {
   } else if (v === "list") {
     const L = NAV.list;
     if (L.err && !L.loading && L.prompt) { spSearch(L); return; }
+    if (L.err && !L.loading && L.live) { loadMine(L); return; }
     const it = L.items && L.items[s];
     if (it) { playQueue(L.label, L.items, s, false); return; }
   } else if (v === "pls") {
@@ -1462,7 +1730,8 @@ function select() {
     const pl = curPl();
     if (pl && pl.items.length) { playQueue(pl.name, pl.items, s === 0 ? 0 : s - 1, s === 0); return; }
   } else if (v === "now") {
-    if (PLY.current) push("addto");
+    if (PLY.current && PLY.current.uri === LIKED.uri) toast("Liked Songs can't go in a playlist");
+    else if (PLY.current) push("addto");
   } else if (v === "addto") {
     const i = s === 0 ? newPlaylist() : s - 1;
     addToPlaylist(i, PLY.current);
@@ -1484,6 +1753,14 @@ function press(q) {
   if (q === "top") return menuBtn();
   clickSound();
   const st = PLY.state;
+  if (premiumOn()) {
+    const p = PREM.player;
+    if (!p || !PLY.current) { toast(p ? "Pick some music first" : "Spotify is still connecting…"); return; }
+    if (q === "bottom") { if (PREM.track) p.togglePlay(); else premiumPlay(PLY.current); }
+    else if (q === "right") p.nextTrack();
+    else if (q === "left") { if (PREM.pos + (PREM.paused ? 0 : performance.now() - PREM.at) > 3000) p.seek(0); else p.previousTrack(); }
+    return;
+  }
   if (q === "bottom") {
     if (spCtrl && PLY.current) spCtrl.togglePlay();
     else if (PLY.current && !CAN_EMBED) toast("Use the green button to play it in Spotify");
@@ -1582,6 +1859,7 @@ window.addEventListener("resize", fit);
 fit();
 applySettings();
 showBattery();
+finishLogin().then(() => { startPremium(); render(); });
 render();
 })();
 </script>
