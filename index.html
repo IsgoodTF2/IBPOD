@@ -244,6 +244,7 @@ body.no-glow .glow-layer { display: none; }
 .view { position: absolute; top: 20px; left: 0; right: 0; bottom: 0; }
 
 /* lists */
+.hint-bar { padding: 5px 10px 6px; font-size: 11px; line-height: 1.35; color: var(--screen-dim); border-bottom: 1px solid rgba(0,0,0,.08); }
 .list { overflow: hidden; height: 100%; }
 .list ul { list-style: none; margin: 0; padding: 0; transition: transform .12s ease-out; }
 .list li {
@@ -828,26 +829,30 @@ async function loadList(L) {
 
 /* ---------- YouTube's player ---------- */
 const PLY = { current: null, state: null, queue: null };
-let yt = null, ytWait = null, ytFails = 0;
+let yt = null, ytWait = null, ytFails = 0, ytGen = 0;   // ytGen goes up when the player is swapped, so old ones stop
 // what loaded and what didn't, shown in the help box so problems are easier to spot
 const ytDiag = { code: "loading", video: "" };
+// privacy mode doesn't know who you are; normal YouTube does, so Premium members get no ads
+const ytHosts = () => S.premium ? ["https://www.youtube.com", "https://www.youtube-nocookie.com"] : ["https://www.youtube-nocookie.com", "https://www.youtube.com"];
 function ytPlayerReady() {
   if (!ytWait) ytWait = new Promise(resolve => {
     let done = false, ready = false;
+    const gen = ytGen, stale = () => gen !== ytGen;
     // if YouTube's player code is blocked (ad blockers often do this), drive YouTube's embed ourselves
-    const fallback = why => { if (ready || done === "direct") return; done = "direct"; if (why) ytDiag.code = why; yt = makeDirectPlayer(); resolve(yt); };
-    window.onYouTubeIframeAPIReady = () => {
-      if (done) return;
+    const fallback = why => { if (stale() || ready || done === "direct") return; done = "direct"; if (why) ytDiag.code = why; yt = makeDirectPlayer(); resolve(yt); };
+    const start = window.onYouTubeIframeAPIReady = () => {
+      if (done || stale()) return;
       done = "api";
       ytDiag.code = "loaded";
-      yt = new YT.Player("ytPlayer", {
-        host: "https://www.youtube-nocookie.com",   // YouTube's privacy-enhanced mode
+      const player = yt = new YT.Player("ytPlayer", {
+        host: ytHosts()[0],
         width: "100%", height: "100%",
         playerVars: { playsinline: 1, rel: 0 },
-        events: { onReady: () => { ready = true; ytBlocked(false); resolve(yt); }, onStateChange: ytStateChange, onError: ytError },
+        events: { onReady: () => { if (stale()) return; ready = true; ytBlocked(false); resolve(player); }, onStateChange: ytStateChange, onError: ytError },
       });
-      setTimeout(() => { if (!ready) { ytDiag.video = "no reply (privacy mode)"; fallback(); } }, 8000);
+      setTimeout(() => { if (!ready) { ytDiag.video = "no reply"; fallback(); } }, 8000);
     };
+    if (window.YT && YT.Player) { start(); return; }   // YouTube's code is already here
     const sc = document.createElement("script");
     sc.src = "https://www.youtube.com/iframe_api";
     sc.onerror = () => fallback("blocked");
@@ -859,7 +864,8 @@ function ytPlayerReady() {
 // The same controls as YT.Player, sent to YouTube's embed with postMessage.
 // Tries privacy-enhanced mode first, then normal YouTube if that gets blocked.
 function makeDirectPlayer() {
-  const HOSTS = ["https://www.youtube-nocookie.com", "https://www.youtube.com"];
+  const HOSTS = ytHosts();
+  const gen = ytGen;
   let host = 0, frame = null, heard = false, lastId = "", st = -1, cur = 0, dur = 0, vol = 100, hello = null, watchdog = null;
   const post = msg => { if (frame && frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(msg), HOSTS[host]); };
   const send = (func, args = []) => post({ event: "command", func, args, id: 1, channel: "widget" });
@@ -885,14 +891,14 @@ function makeDirectPlayer() {
     } else if (d.event === "onStateChange" && typeof info === "number") setState(info);
     else if (d.event === "onError") ytError({ data: info });
   });
-  const open = id => {
+  const open = (id, from) => {
     const box = document.getElementById("ytPlayer");
     frame = document.createElement("iframe");
     frame.id = "ytPlayer";
     frame.title = "YouTube video player";
     frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
     frame.referrerPolicy = "strict-origin-when-cross-origin";   // YouTube needs to know which site is embedding it
-    frame.src = `${HOSTS[host]}/embed/${encodeURIComponent(id)}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}&widget_referrer=${encodeURIComponent(location.href)}`;
+    frame.src = `${HOSTS[host]}/embed/${encodeURIComponent(id)}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&start=${Math.floor(from || 0)}&origin=${encodeURIComponent(location.origin)}&widget_referrer=${encodeURIComponent(location.href)}`;
     frame.addEventListener("load", () => {
       // keep saying hello until the embed answers, like YouTube's own code does
       clearInterval(hello);
@@ -902,18 +908,18 @@ function makeDirectPlayer() {
     heard = false;
     clearTimeout(watchdog);
     watchdog = setTimeout(() => {
-      if (heard) return;
+      if (heard || gen !== ytGen) return;
       clearInterval(hello);
-      if (host + 1 < HOSTS.length) { host++; open(lastId); return; }   // try normal YouTube instead
+      if (host + 1 < HOSTS.length) { host++; open(lastId, from); return; }   // try normal YouTube instead
       ytDiag.video = "no reply";
       ytBlocked(true);
     }, 7000);
   };
   return {
-    loadVideoById(id) {
-      cur = 0; dur = 0; lastId = id;
-      if (frame && heard) send("loadVideoById", [id]);
-      else open(id);
+    loadVideoById(id, from = 0) {
+      cur = from; dur = 0; lastId = id;
+      if (frame && heard) send("loadVideoById", [id, from]);
+      else open(id, from);
     },
     playVideo: () => send("playVideo"),
     pauseVideo: () => send("pauseVideo"),
@@ -950,9 +956,21 @@ function ytError(e) {
   if (++ytFails < 5) setTimeout(() => queueStep(1), 1200);
 }
 const volPct = () => Math.round(Math.pow(S.vol / 16, 1.5) * 100);
-function ytPlay(item) {
+function ytPlay(item, from = 0) {
   $("#tv").hidden = false;
-  ytPlayerReady().then(p => { p.setVolume(volPct()); p.loadVideoById(ytId(item)); });
+  ytPlayerReady().then(p => { p.setVolume(volPct()); p.loadVideoById(ytId(item), from); });
+}
+// swap to a fresh player (after Settings → YouTube Premium changes), carrying on where the song was
+function ytReset() {
+  if (!yt && !ytWait) return;
+  const at = yt && yt.getCurrentTime ? yt.getCurrentTime() || 0 : 0;
+  const box = document.createElement("div");
+  box.id = "ytPlayer";
+  document.getElementById("ytPlayer").replaceWith(box);
+  yt = null; ytWait = null; ytGen++;
+  ytDiag.code = "loading"; ytDiag.video = "";
+  ytBlocked(false);
+  if (PLY.current && CAN_PLAY) ytPlay(PLY.current, at);
 }
 
 // picking a song opens Now Playing; skipping (⏭, or a song ending) just plays
@@ -1099,7 +1117,7 @@ $("#keySave").addEventListener("click", () => {
    ========================================================= */
 const DEFAULTS = {
   body: "silver", custom: "#3d7bfd", wheel: "match", theme: "classic", hi: "blue", text: "normal",
-  clicker: true, vibrate: true, speed: "normal", backlight: 0, showPct: true, drain: "normal", glow: true, shuffle: false, vol: 12,
+  clicker: true, vibrate: true, speed: "normal", backlight: 0, showPct: true, drain: "normal", glow: true, shuffle: false, vol: 12, premium: false,
 };
 // the choices for each setting: [saved value, what the screen says]
 const OPTIONS = {
@@ -1138,6 +1156,7 @@ const nowMenu = () => [
 
 const settingsRows = () => [
   ...(YT_API_KEY ? [] : [{ label: "YouTube Setup", go: "ytsetup", value: () => ytKey() ? "Done" : "Needed" }]),
+  { label: "YouTube Premium", go: "premium", value: () => S.premium ? "On" : "Off" },
   { label: "Body Colour", key: "body" },
   { label: "Wheel", key: "wheel" },
   { label: "Screen", key: "theme" },
@@ -1253,7 +1272,7 @@ function rowCount(v) {
     case "browse": return BROWSE.length;
     case "settings": return settingsRows().length;
     case "choice": return OPTIONS[NAV.choice].length;
-    case "reset": case "wipe": return 2;
+    case "reset": case "wipe": case "premium": return 2;
     case "foryou": return FOR_YOU.length;
     case "nowmenu": return nowMenu().length;
     case "find": return NAV.find && NAV.find.items ? NAV.find.items.length : 0;
@@ -1304,7 +1323,7 @@ function render() {
   $("#hdrTitle").textContent = {
     menu: "YouPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse YouTube",
     list: NAV.list ? NAV.list.label : "Music", addto: "Add to Playlist", help: "Controls",
-    settings: "Settings", ytsetup: "YouTube Setup", foryou: "For You", nowmenu: "Song", find: "Search YouTube", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings", wipe: "Delete My Data",
+    settings: "Settings", ytsetup: "YouTube Setup", foryou: "For You", nowmenu: "Song", find: "Search YouTube", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", premium: "YouTube Premium", reset: "Reset Settings", wipe: "Delete My Data",
   }[v];
   let html = "";
   if (v === "menu") {
@@ -1362,9 +1381,12 @@ function render() {
     html = listHTML([{ label: "Cancel" }, { label: "Reset all settings" }], "reset");
   } else if (v === "wipe") {
     html = `<div class="hint-bar">Deletes your playlists, settings and history from this browser.</div>` + listHTML([{ label: "Cancel" }, { label: "Delete everything" }], "wipe");
+  } else if (v === "premium") {
+    html = `<div class="hint-bar">Have YouTube Premium? Turn this on and sign in to YouTube in this browser, and songs play with no ads.</div>`
+      + listHTML([{ label: "Use My YouTube Account", value: S.premium ? "On" : "Off" }, { label: "Sign In to YouTube", chev: true }], "premium");
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
-      <p><b>YouPod</b> · version 4</p>
+      <p><b>YouPod</b> · version 5</p>
       <p>Created by <b>Aaron</b>.</p>
       <p>Music plays through YouTube. The video plays on the screen next to the YouPod, and the YouPod is the remote.</p>
       <p class="dim">Playlists: ${playlists.length} · Songs played: ${history.length}</p>
@@ -1637,6 +1659,16 @@ function select() {
     } else {
       toast(`${OPTION_TITLES[NAV.choice]}: ${label}`);
       NAV.stack.pop();
+    }
+  } else if (v === "premium") {
+    if (s === 0) {
+      S.premium = !S.premium;
+      saveSettings();
+      ytReset();
+      toast(S.premium ? "Using your YouTube account" : "Using privacy mode");
+    } else {
+      window.open("https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F", "_blank", "noopener");
+      toast("Sign in, then come back here");
     }
   } else if (v === "wipe") {
     if (s === 1) { deleteMyData(); return; }
