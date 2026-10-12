@@ -476,6 +476,9 @@ kbd {
 .sp-paste input:focus-visible { outline: 2px solid var(--yt); outline-offset: 1px; }
 .sp-paste button { font: inherit; font-size: 13px; font-weight: 700; color: #fff; background: var(--yt); border: 0; border-radius: 8px; padding: 8px 16px; cursor: pointer; }
 .sp-paste button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.sp-paste .seg { gap: 0; align-self: flex-start; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); border-radius: 999px; padding: 3px; }
+.sp-paste .seg button { background: transparent; color: var(--muted); border-radius: 999px; padding: 5px 14px; }
+.sp-paste .seg button[aria-pressed="true"] { background: var(--yt); color: #fff; }
 .sp-paste p { margin: 0; font-size: 12px; color: var(--muted); min-height: 1.2em; }
 
 /* custom body colour */
@@ -594,6 +597,10 @@ kbd {
 
   <form class="sp-paste" id="findPanel" hidden role="search">
     <label for="findIn">Search YouTube</label>
+    <div class="seg" role="group" aria-label="What to search for">
+      <button type="button" data-type="songs" aria-pressed="true">Songs</button>
+      <button type="button" data-type="playlists" aria-pressed="false">Playlists</button>
+    </div>
     <div><input id="findIn" type="search" placeholder="Song or artist" autocomplete="off" enterkeyhint="search"><button type="submit">Search</button></div>
     <p id="findMsg" role="status"></p>
   </form>
@@ -638,6 +645,7 @@ kbd {
     <span class="kb"><kbd>←</kbd> <kbd>→</kbd> skip</span>
     <span class="kb"><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> rewind</span>
     <span class="kb"><kbd>/</kbd> search</span>
+    <span class="kb"><kbd>L</kbd> like</span>
   </div>
 
   <footer class="credits">
@@ -703,8 +711,8 @@ function store(key, value) {
    YOUTUBE MUSIC
    Songs play through YouTube's official player. YouTube's rules say the
    video must stay visible (at least 200 × 200 pixels), so it plays on a
-   "TV" next to the YouPod and the YouPod is the remote. Search and the
-   Browse charts use the YouTube Data API with YouPod's API key.
+   "TV" next to the YouPod and the YouPod is the remote. Search (songs and
+   playlists) uses the YouTube Data API with YouPod's API key.
    ========================================================= */
 const IN_CLAUDE = !!(window.claude && typeof window.claude.use === "function");
 const CAN_PLAY = !IN_CLAUDE;   // claude.ai can't show other websites' players
@@ -729,9 +737,25 @@ let playlists = (Array.isArray(load("tackle-ipod-playlists", [])) ? load("tackle
   .filter(p => p && typeof p.name === "string" && Array.isArray(p.items))
   .map(p => ({ id: typeof p.id === "string" ? p.id : newId(), name: p.name.slice(0, 40) || "Playlist", items: p.items.map(cleanItem).filter(Boolean) }));
 const savePlaylists = () => store("tackle-ipod-playlists", playlists);
+// Liked Songs is always the first playlist; it can't be renamed or deleted
+const LIKED = "liked";
+{
+  const found = playlists.filter(p => p.id === LIKED);
+  playlists = [{ id: LIKED, name: "♥ Liked Songs", items: found.length ? found[0].items : [] }, ...playlists.filter(p => p.id !== LIKED)];
+}
+const likedPl = () => playlists[0];
+const isLiked = it => !!it && likedPl().items.some(x => x.uri === it.uri);
+function toggleLike(it) {
+  if (!it) { toast("Play a song first"); return; }
+  const L = likedPl();
+  if (isLiked(it)) { L.items = L.items.filter(x => x.uri !== it.uri); toast("Removed from Liked Songs"); }
+  else { L.items.unshift({ ...it, t: Date.now() }); toast("♥ Added to Liked Songs"); }
+  savePlaylists();
+  render();
+}
 function newId() { return "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function newPlaylist() {
-  let n = playlists.length + 1;
+  let n = playlists.length;   // Liked Songs doesn't count
   while (playlists.some(p => p.name === `Playlist ${n}`)) n++;
   playlists.push({ id: newId(), name: `Playlist ${n}`, items: [] });
   savePlaylists();
@@ -756,14 +780,12 @@ function remember(item) {
 /* ---------- YouTube search ----------
    Every search uses part of the key's daily allowance (about 100 searches a
    day for everyone together), so results are saved for 12 hours. */
-async function ytSearch(q, max = 25) {
+// one request to the YouTube Data API, with friendly error messages
+async function ytApi(path, params) {
   if (!CAN_PLAY) throw { message: "Search works on the YouPod website, not inside claude.ai." };
   if (!ytKey()) throw { message: "Search isn't set up yet. YouPod's owner needs to add a YouTube key in Settings → YouTube Setup." };
-  const cache = load("spotpod-cache", {}) || {};
-  const c = cache[q];
-  if (c && Date.now() - c.t < 12 * 3600000 && Array.isArray(c.items)) return c.items.map(cleanItem).filter(Boolean);
-  const u = new URL("https://www.googleapis.com/youtube/v3/search");
-  u.search = new URLSearchParams({ part: "snippet", type: "video", videoEmbeddable: "true", videoCategoryId: "10", safeSearch: "moderate", maxResults: String(max), q, key: ytKey() }).toString();
+  const u = new URL("https://www.googleapis.com/youtube/v3/" + path);
+  u.search = new URLSearchParams({ ...params, key: ytKey() }).toString();
   const r = await fetch(u, YT_FETCH);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
@@ -771,27 +793,61 @@ async function ytSearch(q, max = 25) {
     if (reason === "quotaExceeded" || reason === "dailyLimitExceeded") throw { message: "YouPod has used up today's YouTube searches. They come back tomorrow." };
     if (reason === "keyInvalid" || r.status === 400) throw { message: "The YouTube key isn't working. Check it in Settings → YouTube Setup." };
     if (r.status === 403) throw { message: "YouTube said no (" + (reason || "403") + "). Check the key's website settings." };
+    if (reason === "playlistNotFound" || r.status === 404) throw { message: "That playlist is private or was deleted." };
     throw { message: "YouTube didn't answer (error " + r.status + ")." };
   }
-  const items = (j.items || []).filter(x => x && x.id && x.id.videoId && x.snippet)
-    .map(x => ytItem(x.id.videoId, decode(x.snippet.title), decode(x.snippet.channelTitle).replace(/ - Topic$/, "")));
-  cache[q] = { t: Date.now(), items };
-  const keep = Object.keys(cache).sort((a, b) => cache[b].t - cache[a].t).slice(0, 40);
-  store("spotpod-cache", Object.fromEntries(keep.map(k => [k, cache[k]])));
-  return items;
+  return j;
 }
-
-const BROWSE = [
-  { label: "Top Hits", q: "top hits official music video" },
-  { label: "Hardstyle", q: "hardstyle" },
-  { label: "Dubstep", q: "dubstep" },
-  { label: "Lo-fi", q: "lofi hip hop" },
-  { label: "Synthwave", q: "synthwave" },
-  { label: "Chill", q: "chill relaxing music" },
-  { label: "Game Music", q: "video game music" },
-  { label: "Team Fortress 2", q: "Team Fortress 2 soundtrack" },
-  { label: "Minecraft", q: "Minecraft music C418" },
-];
+// results are saved for 12 hours, so the same search doesn't use the allowance twice
+function cached(key, clean, fetcher) {
+  const cache = load("spotpod-cache", {}) || {};
+  const c = cache[key];
+  if (c && Date.now() - c.t < 12 * 3600000 && Array.isArray(c.items)) return Promise.resolve(c.items.map(clean).filter(Boolean));
+  return fetcher().then(items => {
+    const all = load("spotpod-cache", {}) || {};
+    all[key] = { t: Date.now(), items };
+    const keep = Object.keys(all).sort((a, b) => all[b].t - all[a].t).slice(0, 40);
+    store("spotpod-cache", Object.fromEntries(keep.map(k => [k, all[k]])));
+    return items;
+  });
+}
+const artistOf = s => decode(s).replace(/ - Topic$/, "");
+function ytSearch(q, max = 25) {
+  return cached(q, cleanItem, async () => {
+    const j = await ytApi("search", { part: "snippet", type: "video", videoEmbeddable: "true", videoCategoryId: "10", safeSearch: "moderate", maxResults: String(max), q });
+    return (j.items || []).filter(x => x && x.id && x.id.videoId && x.snippet)
+      .map(x => ytItem(x.id.videoId, decode(x.snippet.title), artistOf(x.snippet.channelTitle)));
+  });
+}
+// a YouTube playlist found by search (opens like a folder)
+const PL_ID = /^[A-Za-z0-9_-]{10,64}$/;
+const ytListItem = (id, name, by, t) => ({ kind: "playlist", id, name, by, url: "https://www.youtube.com/playlist?list=" + id, t: t || Date.now() });
+const cleanList = x => x && typeof x.name === "string" && PL_ID.test(x.id) ? ytListItem(x.id, x.name.slice(0, 140), String(x.by || "").slice(0, 80), x.t) : null;
+function ytSearchPlaylists(q) {
+  return cached("playlists:" + q, cleanList, async () => {
+    const j = await ytApi("search", { part: "snippet", type: "playlist", safeSearch: "moderate", maxResults: "25", q });
+    return (j.items || []).filter(x => x && x.id && x.id.playlistId && x.snippet)
+      .map(x => ytListItem(x.id.playlistId, decode(x.snippet.title), artistOf(x.snippet.channelTitle)));
+  });
+}
+// the songs inside a YouTube playlist (up to 200; private and deleted ones are skipped)
+function ytPlaylistSongs(id) {
+  return cached("songs:" + id, cleanItem, async () => {
+    const out = [];
+    let page = "";
+    for (let n = 0; n < 4; n++) {
+      const j = await ytApi("playlistItems", { part: "snippet", playlistId: id, maxResults: "50", ...(page ? { pageToken: page } : {}) });
+      (j.items || []).forEach(x => {
+        const sn = x && x.snippet, vid = sn && sn.resourceId && sn.resourceId.videoId;
+        if (vid && sn.videoOwnerChannelTitle) out.push(ytItem(vid, decode(sn.title), artistOf(sn.videoOwnerChannelTitle)));
+      });
+      page = j.nextPageToken;
+      if (!page) break;
+    }
+    if (!out.length) throw { message: "This playlist has no songs that can play." };
+    return out;
+  });
+}
 
 const shuffled = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 // For You: new songs from the artists you play most on YouPod
@@ -1108,7 +1164,7 @@ $("#keySave").addEventListener("click", () => {
   const v = $("#keyIn").value.trim();
   if (!/^AIza[0-9A-Za-z_-]{35}$/.test(v)) { $("#keyMsg").textContent = "That doesn't look like a YouTube API key. It starts with AIza and is 39 characters long."; return; }
   store("spotpod-yt-key", v);
-  $("#keyMsg").textContent = "Saved. Try Search or Browse now.";
+  $("#keyMsg").textContent = "Saved. Try Search now.";
   render();
 });
 
@@ -1147,6 +1203,7 @@ const saveSettings = () => store("tackle-ipod", S);
 
 // what the centre button offers on Now Playing
 const nowMenu = () => [
+  { label: isLiked(PLY.current) ? "Unlike" : "♥ Like", act: () => toggleLike(PLY.current) },
   { label: "Rewind 10 seconds", act: () => seekBy(-10000) },
   { label: "Forward 10 seconds", act: () => seekBy(10000) },
   { label: "Scrub with the wheel", act: () => { NAV.scrub = true; toast("Spin to move through the song"); } },
@@ -1258,7 +1315,6 @@ const menuItems = () => [
   { label: "Now Playing", go: "now" },
   { label: "Playlists", go: "pls" },
   { label: "Search", go: "find" },
-  { label: "Browse", go: "browse" },
   { label: "For You", go: "foryou" },
   { label: "Shuffle", value: S.shuffle ? "On" : "Off", act: toggleShuffle },
   { label: "Settings", go: "settings" },
@@ -1269,7 +1325,6 @@ const plsRows = () => [{ label: "+ New Playlist" }, ...playlists.map(p => ({ lab
 function rowCount(v) {
   switch (v) {
     case "menu": return menuItems().length;
-    case "browse": return BROWSE.length;
     case "settings": return settingsRows().length;
     case "choice": return OPTIONS[NAV.choice].length;
     case "reset": case "wipe": case "premium": return 2;
@@ -1321,15 +1376,13 @@ function render() {
   const v = view();
   const pl = curPl();
   $("#hdrTitle").textContent = {
-    menu: "YouPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse YouTube",
+    menu: "YouPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist",
     list: NAV.list ? NAV.list.label : "Music", addto: "Add to Playlist", help: "Controls",
     settings: "Settings", ytsetup: "YouTube Setup", foryou: "For You", nowmenu: "Song", find: "Search YouTube", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", premium: "YouTube Premium", reset: "Reset Settings", wipe: "Delete My Data",
   }[v];
   let html = "";
   if (v === "menu") {
     html = listHTML(menuItems().map(m => ({ label: m.label, value: m.value, chev: !!(m.go || m.list) })), "menu");
-  } else if (v === "browse") {
-    html = listHTML(BROWSE.map(b => ({ label: b.label, chev: true })), "browse");
   } else if (v === "list") {
     const L = NAV.list;
     if (L.loading) html = msgHTML("", "Loading…", true);
@@ -1340,16 +1393,17 @@ function render() {
     html = listHTML(plsRows(), "pls");
   } else if (v === "pl") {
     html = pl && pl.items.length ? listHTML(plRows(pl), "pl")
+      : pl && pl.id === LIKED ? msgHTML("No liked songs yet", "Play a song, press the centre button and pick ♥ Like. Or press L.")
       : msgHTML("This playlist is empty", "Play something, then press the centre button and pick Add to Playlist.");
   } else if (v === "addto") {
     html = listHTML(plsRows(), "addto");
   } else if (v === "now") {
     const it = PLY.current, q = PLY.queue;
-    if (!it) html = msgHTML("Nothing playing yet", "Pick something from Search, Browse or your Playlists.");
+    if (!it) html = msgHTML("Nothing playing yet", "Pick something from Search or your Playlists.");
     else if (!CAN_PLAY) html = msgHTML("Open the YouPod website", "Music plays on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
     else html = `<div class="np">
       <div class="np-count">${q ? `${q.pos + 1} of ${q.order.length} · ${esc(q.name)}` : "YouTube"}${S.shuffle ? " · Shuffle" : ""}</div>
-      <div class="np-main"><img class="cover" src="${esc(it.art)}" alt="" onerror="ibpodCoverFail(this)"><div class="np-info"><b>${esc(it.name)}</b><span>${esc(it.by)}</span><span class="meta">YouTube</span></div></div>
+      <div class="np-main"><img class="cover" src="${esc(it.art)}" alt="" onerror="ibpodCoverFail(this)"><div class="np-info"><b>${esc(it.name)}</b><span>${esc(it.by)}</span><span class="meta">${isLiked(it) ? "♥ Liked · " : ""}YouTube</span></div></div>
       <div class="np-foot" id="npFoot">
         <div class="prog"><div class="bar"><i id="prog"></i></div><div class="times"><span id="tEl">0:00</span><span id="tRem">-0:00</span></div></div>
         <div class="vol">${VOL_LO}<div class="bar"><i id="volBar"></i></div>${VOL_HI}</div>
@@ -1364,7 +1418,7 @@ function render() {
     html = listHTML(OPTIONS[NAV.choice].map(o => ({ label: o[1], value: S[NAV.choice] === o[0] ? "✓" : null })), "choice");
   } else if (v === "ytsetup") {
     html = !CAN_PLAY ? msgHTML("Use the YouPod website", "Set up YouTube on isgoodtf2.github.io/IBPOD.")
-      : ytKey() ? msgHTML("YouTube is set up", "Search, Browse and For You are ready.")
+      : ytKey() ? msgHTML("YouTube is set up", "Search and For You are ready.")
       : msgHTML("One-time setup", "Follow the steps under the YouPod to add YouPod's YouTube key.");
   } else if (v === "foryou") {
     html = listHTML(FOR_YOU.map(f => ({ label: f.label, chev: true })), "foryou");
@@ -1376,7 +1430,7 @@ function render() {
     else if (F.err) html = msgHTML(F.err[0], F.err[1]);
     else if (!F.items) html = msgHTML("Search YouTube", "Type a song or artist in the search box next to the YouPod, then press Search.");
     else if (!F.items.length) html = msgHTML("Nothing found", "Try different words.");
-    else html = listHTML(F.items.map(it => ({ label: it.name })), "find");
+    else html = listHTML(F.items.map(it => ({ label: it.name, chev: it.kind === "playlist" })), "find");
   } else if (v === "reset") {
     html = listHTML([{ label: "Cancel" }, { label: "Reset all settings" }], "reset");
   } else if (v === "wipe") {
@@ -1386,7 +1440,7 @@ function render() {
       + listHTML([{ label: "Use My YouTube Account", value: S.premium ? "On" : "Off" }, { label: "Sign In to YouTube", chev: true }], "premium");
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
-      <p><b>YouPod</b> · version 5</p>
+      <p><b>YouPod</b> · version 6</p>
       <p>Created by <b>Aaron</b>.</p>
       <p>Music plays through YouTube. The video plays on the screen next to the YouPod, and the YouPod is the remote.</p>
       <p class="dim">Playlists: ${playlists.length} · Songs played: ${history.length}</p>
@@ -1399,6 +1453,8 @@ function render() {
       <p><b>Now Playing:</b> spin the wheel for volume. The centre button opens Rewind, Forward, Scrub, Add to Playlist and Songs Like This.</p>
       <p><b>The video</b> plays on the screen next to the YouPod. YouTube's rules say it has to stay visible.</p>
       <p><b>For You</b> learns from the songs you play on YouPod.</p>
+      <p><b>Like a song:</b> on Now Playing press the centre button and pick ♥ Like, or press L. They go in Playlists → ♥ Liked Songs.</p>
+      <p><b>Search</b> finds songs or whole YouTube playlists. Pick Songs or Playlists next to the search box.</p>
       <p><b>Make a playlist:</b> Playlists → + New Playlist, then add songs from Now Playing.</p>
       <p><b>Battery:</b> click the charging port on the bottom edge to plug in or unplug.</p>
       <p class="dim">Playlists and settings save in this browser. Settings → Terms & Privacy explains more, and Settings → Delete My Data wipes them.</p>
@@ -1443,6 +1499,9 @@ function updatePanel() {
   const pl = view() === "pl" ? curPl() : null;
   $("#plEdit").hidden = !pl;
   if (!pl) { $("#plConfirm").hidden = true; return; }
+  const fixed = pl.id === LIKED;
+  $("#plName").closest(".panel-row").hidden = fixed;
+  $("#plDelete").hidden = fixed;
   if (document.activeElement !== $("#plName")) $("#plName").value = pl.name;
   $("#plItems").innerHTML = pl.items.length
     ? pl.items.map((it, i) => `<li><span><b>${esc(it.name)}</b><small>${esc(it.type)}${it.by ? " · " + esc(it.by) : ""}</small></span><button type="button" class="ghost" data-remove="${i}" aria-label="Remove ${esc(it.name)}">Remove</button></li>`).join("")
@@ -1451,7 +1510,7 @@ function updatePanel() {
 }
 $("#plName").addEventListener("input", e => {
   const pl = curPl(), name = e.target.value.trim();
-  if (!pl || !name) return;
+  if (!pl || !name || pl.id === LIKED) return;
   pl.name = name.slice(0, 40);
   savePlaylists();
   $("#hdrTitle").textContent = pl.name;
@@ -1471,7 +1530,7 @@ $("#plDelete").addEventListener("click", () => { $("#plConfirm").hidden = false;
 $("#plNo").addEventListener("click", () => { $("#plConfirm").hidden = true; });
 $("#plYes").addEventListener("click", () => {
   const idx = playlists.findIndex(p => p.id === NAV.pl);
-  if (idx < 0) return;
+  if (idx < 1) return;   // Liked Songs stays
   const [gone] = playlists.splice(idx, 1);
   savePlaylists();
   $("#plConfirm").hidden = true;
@@ -1575,19 +1634,27 @@ setInterval(batteryTick, 1000);
 window.addEventListener("pagehide", saveBattery);
 
 /* ---------- the search box under the YouPod ---------- */
+let findType = "songs";
+document.querySelectorAll("#findPanel .seg button").forEach(b => b.addEventListener("click", () => {
+  findType = b.dataset.type;
+  document.querySelectorAll("#findPanel .seg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  $("#findIn").placeholder = findType === "songs" ? "Song or artist" : "Playlist name, genre or artist";
+  $("#findIn").focus();
+  if ($("#findIn").value.trim()) $("#findPanel").requestSubmit();
+}));
 $("#findPanel").addEventListener("submit", async e => {
   e.preventDefault();
   const q = $("#findIn").value.trim();
-  if (!q) { $("#findMsg").textContent = "Type a song or artist first."; return; }
+  if (!q) { $("#findMsg").textContent = findType === "songs" ? "Type a song or artist first." : "Type what kind of playlist you want first."; return; }
   if (BAT.dead) { $("#findMsg").textContent = "The YouPod's battery is empty. Charge it first."; return; }
-  $("#findIn").blur();   // so the arrow keys move through the results
+  if (document.activeElement && document.activeElement.closest("#findPanel")) document.activeElement.blur();   // so the arrow keys move through the results
   $("#findMsg").textContent = "";
-  const F = NAV.find = { label: "Search", items: null, loading: true, q };
+  const F = NAV.find = { label: "Search", items: null, loading: true, q, type: findType };
   NAV.sel.find = 0; NAV.top.find = 0;
   if (view() !== "find") push("find");
   render();
   try {
-    F.items = await ytSearch(q);
+    F.items = await (F.type === "playlists" ? ytSearchPlaylists(q) : ytSearch(q));
   } catch (err) {
     F.err = ["Search didn't work", String((err && err.message) || "Try again.")];
   }
@@ -1681,10 +1748,6 @@ function select() {
       toast("Settings reset");
     }
     NAV.stack.pop();
-  } else if (v === "browse") {
-    const b = BROWSE[s];
-    const L = { label: b.label, items: null, loader: () => ytSearch(b.q) };
-    openList(L); loadList(L); return;
   } else if (v === "list") {
     const L = NAV.list;
     if (L.err && !L.loading && L.loader) { loadList(L); return; }
@@ -1715,6 +1778,10 @@ function select() {
     openList(L); loadList(L); return;
   } else if (v === "find") {
     const F = NAV.find, it = F.items && F.items[s];
+    if (it && it.kind === "playlist") {
+      const L = { label: it.name, items: null, loader: () => ytPlaylistSongs(it.id) };
+      openList(L); loadList(L); return;
+    }
     if (it) { playQueue("Search", F.items, s, false); return; }
   } else if (v === "addto") {
     const i = s === 0 ? newPlaylist() : s - 1;
@@ -1821,6 +1888,7 @@ window.addEventListener("keydown", e => {
     ArrowLeft: () => press("left"), ArrowRight: () => press("right"),
     Enter: () => select(), " ": () => press("bottom"),
     Escape: () => menuBtn(), Backspace: () => menuBtn(), m: () => menuBtn(),
+    l: () => { clickSound(); toggleLike(PLY.current); }, L: () => { clickSound(); toggleLike(PLY.current); },
   };
   if (e.shiftKey && (k === "ArrowLeft" || k === "ArrowRight")) { e.preventDefault(); wake(); seekBy(k === "ArrowLeft" ? -10000 : 10000); return; }
   if (k === "/") { e.preventDefault(); const i = menuItems().findIndex(m => m.label === "Search"); homeView(); NAV.sel.menu = i; select(); return; }
