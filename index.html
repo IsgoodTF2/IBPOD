@@ -422,6 +422,11 @@ kbd {
 /* the "TV": YouTube's player has to stay visible, at least 200 × 200 pixels */
 .tv { width: min(100%, 26rem); position: relative; z-index: 1; }
 .tv-frame { position: relative; aspect-ratio: 16 / 9; min-height: 200px; background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.tv-help { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); color: #dde6f3; font-size: 14px; line-height: 1.45; display: flex; flex-direction: column; gap: 8px; }
+.tv-help ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.tv-help a { color: #ff6b84; font-weight: 600; }
+.tv-help button { align-self: flex-start; font: inherit; font-weight: 700; color: #fff; background: #e8263f; border: 0; border-radius: 999px; padding: 7px 16px; cursor: pointer; }
+.tv-help small { color: #8a9cb8; font-size: 12px; }
 .tv-frame iframe, .tv-frame #ytPlayer { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 
 /* playlist editor */
@@ -569,6 +574,16 @@ kbd {
   <div class="side">
   <section class="tv" id="tv" hidden aria-label="Video">
     <div class="tv-frame"><div id="ytPlayer"></div></div>
+    <div class="tv-help" id="tvHelp" hidden role="alert">
+      <b>YouTube is being blocked on this device</b>
+      <ol>
+        <li>An ad blocker is the usual cause. Click its icon (often a red shield) and turn it off for this site.</li>
+        <li>Check that <a href="https://www.youtube.com/" target="_blank" rel="noopener">youtube.com</a> opens. If it doesn't, your Wi-Fi or a parental filter may be blocking it.</li>
+        <li>Then refresh this page.</li>
+      </ol>
+      <button type="button" id="tvRetry">Refresh</button>
+      <small id="tvDiag"></small>
+    </div>
   </section>
 
   <a class="sp-link" id="spLink" href="https://www.youtube.com/" target="_blank" rel="noopener" hidden>
@@ -814,36 +829,39 @@ async function loadList(L) {
 /* ---------- YouTube's player ---------- */
 const PLY = { current: null, state: null, queue: null };
 let yt = null, ytWait = null, ytFails = 0;
-const YT_BLOCKED = "YouTube is being blocked on this device, maybe by an ad blocker. Turn it off for this site, then refresh.";
+// what loaded and what didn't, shown in the help box so problems are easier to spot
+const ytDiag = { code: "loading", video: "" };
 function ytPlayerReady() {
   if (!ytWait) ytWait = new Promise(resolve => {
     let done = false, ready = false;
     // if YouTube's player code is blocked (ad blockers often do this), drive YouTube's embed ourselves
-    const fallback = () => { if (done) return; done = true; yt = makeDirectPlayer(); resolve(yt); };
+    const fallback = why => { if (ready || done === "direct") return; done = "direct"; if (why) ytDiag.code = why; yt = makeDirectPlayer(); resolve(yt); };
     window.onYouTubeIframeAPIReady = () => {
       if (done) return;
-      done = true;
+      done = "api";
+      ytDiag.code = "loaded";
       yt = new YT.Player("ytPlayer", {
         host: "https://www.youtube-nocookie.com",   // YouTube's privacy-enhanced mode
         width: "100%", height: "100%",
         playerVars: { playsinline: 1, rel: 0 },
-        events: { onReady: () => { ready = true; resolve(yt); }, onStateChange: ytStateChange, onError: ytError },
+        events: { onReady: () => { ready = true; ytBlocked(false); resolve(yt); }, onStateChange: ytStateChange, onError: ytError },
       });
-      setTimeout(() => { if (!ready) toast(YT_BLOCKED, 6000); }, 10000);
+      setTimeout(() => { if (!ready) { ytDiag.video = "no reply (privacy mode)"; fallback(); } }, 8000);
     };
     const sc = document.createElement("script");
     sc.src = "https://www.youtube.com/iframe_api";
-    sc.onerror = fallback;
-    setTimeout(fallback, 8000);
+    sc.onerror = () => fallback("blocked");
+    setTimeout(() => { if (!done) fallback("too slow"); }, 7000);
     document.head.appendChild(sc);
   });
   return ytWait;
 }
-// The same controls as YT.Player, sent to YouTube's embed with postMessage
+// The same controls as YT.Player, sent to YouTube's embed with postMessage.
+// Tries privacy-enhanced mode first, then normal YouTube if that gets blocked.
 function makeDirectPlayer() {
-  const ORIGIN = "https://www.youtube-nocookie.com";
-  let frame = null, heard = false, st = -1, cur = 0, dur = 0, vol = 100, hello = null, watchdog = null;
-  const post = msg => { if (frame && frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(msg), ORIGIN); };
+  const HOSTS = ["https://www.youtube-nocookie.com", "https://www.youtube.com"];
+  let host = 0, frame = null, heard = false, lastId = "", st = -1, cur = 0, dur = 0, vol = 100, hello = null, watchdog = null;
+  const post = msg => { if (frame && frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(msg), HOSTS[host]); };
   const send = (func, args = []) => post({ event: "command", func, args, id: 1, channel: "widget" });
   const setState = n => { if (n === st) return; st = n; ytStateChange({ data: n }); };
   window.addEventListener("message", e => {
@@ -854,6 +872,7 @@ function makeDirectPlayer() {
     if (!heard) {
       heard = true;
       clearInterval(hello); clearTimeout(watchdog);
+      ytBlocked(false);
       send("addEventListener", ["onStateChange"]);
       send("addEventListener", ["onError"]);
       send("setVolume", [vol]);
@@ -866,26 +885,35 @@ function makeDirectPlayer() {
     } else if (d.event === "onStateChange" && typeof info === "number") setState(info);
     else if (d.event === "onError") ytError({ data: info });
   });
+  const open = id => {
+    const box = document.getElementById("ytPlayer");
+    frame = document.createElement("iframe");
+    frame.id = "ytPlayer";
+    frame.title = "YouTube video player";
+    frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    frame.referrerPolicy = "strict-origin-when-cross-origin";   // YouTube needs to know which site is embedding it
+    frame.src = `${HOSTS[host]}/embed/${encodeURIComponent(id)}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}&widget_referrer=${encodeURIComponent(location.href)}`;
+    frame.addEventListener("load", () => {
+      // keep saying hello until the embed answers, like YouTube's own code does
+      clearInterval(hello);
+      hello = setInterval(() => post({ event: "listening", id: 1, channel: "widget" }), 250);
+    });
+    box.replaceWith(frame);
+    heard = false;
+    clearTimeout(watchdog);
+    watchdog = setTimeout(() => {
+      if (heard) return;
+      clearInterval(hello);
+      if (host + 1 < HOSTS.length) { host++; open(lastId); return; }   // try normal YouTube instead
+      ytDiag.video = "no reply";
+      ytBlocked(true);
+    }, 7000);
+  };
   return {
     loadVideoById(id) {
-      cur = 0; dur = 0;
-      if (frame && heard) { send("loadVideoById", [id]); return; }
-      const box = document.getElementById("ytPlayer");
-      frame = document.createElement("iframe");
-      frame.id = "ytPlayer";
-      frame.title = "YouTube video player";
-      frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
-      frame.src = `${ORIGIN}/embed/${encodeURIComponent(id)}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}&widget_referrer=${encodeURIComponent(location.href)}`;
-      frame.referrerPolicy = "strict-origin-when-cross-origin";   // YouTube needs to know which site is embedding it
-      frame.addEventListener("load", () => {
-        // keep saying hello until the embed answers, like YouTube's own code does
-        clearInterval(hello);
-        hello = setInterval(() => post({ event: "listening", id: 1, channel: "widget" }), 250);
-      });
-      box.replaceWith(frame);
-      heard = false;
-      clearTimeout(watchdog);
-      watchdog = setTimeout(() => { clearInterval(hello); if (!heard) toast(YT_BLOCKED, 6000); }, 10000);
+      cur = 0; dur = 0; lastId = id;
+      if (frame && heard) send("loadVideoById", [id]);
+      else open(id);
     },
     playVideo: () => send("playVideo"),
     pauseVideo: () => send("pauseVideo"),
@@ -895,6 +923,16 @@ function makeDirectPlayer() {
     getCurrentTime: () => cur,
     getDuration: () => dur,
   };
+}
+// a help box under the TV, when YouTube can't load at all
+function ytBlocked(on) {
+  const box = $("#tvHelp");
+  if (!box || box.hidden === !on) return;
+  box.hidden = !on;
+  if (on) {
+    $("#tvDiag").textContent = `Player code: ${ytDiag.code} · Video: ${ytDiag.video || "no reply"} · ${navigator.onLine ? "online" : "offline"}`;
+    toast("YouTube is being blocked. See the steps under the video.", 5000);
+  }
 }
 function ytSync() {
   if (!yt || !yt.getPlayerState) return;
@@ -1737,6 +1775,7 @@ $("#ipod").addEventListener("wheel", e => {
 $("#center").addEventListener("pointerdown", () => initAudio());
 $("#center").addEventListener("click", e => { e.preventDefault(); select(); });
 
+$("#tvRetry").addEventListener("click", () => location.reload());
 window.addEventListener("keydown", e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (!$("#consent").hidden) return;
