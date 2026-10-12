@@ -841,7 +841,7 @@ function queueStep(d) {
    player (Spotify's Web Playback SDK): full songs, private playlists,
    shuffle and skip inside playlists, and volume on the wheel.
    ========================================================= */
-const SPOTIFY_CLIENT_ID = "";   // the IBPOD app's Client ID from developer.spotify.com (safe to share)
+const SPOTIFY_CLIENT_ID = "6114f72793e24ed695cf4723f934030f";   // the IBPOD app's Client ID from developer.spotify.com (safe to share)
 const clientId = () => SPOTIFY_CLIENT_ID || String(load("ibpod-client-id", "") || "");
 const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, "");
 const SCOPES = "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read";
