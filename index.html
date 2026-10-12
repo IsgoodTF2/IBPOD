@@ -483,15 +483,6 @@ kbd {
 .sp-paste input:focus-visible { outline: 2px solid var(--spotify); outline-offset: 1px; }
 .sp-paste button { font: inherit; font-size: 13px; font-weight: 700; color: #06200f; background: var(--spotify); border: 0; border-radius: 8px; padding: 8px 16px; cursor: pointer; }
 .sp-paste button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.sp-paste .paste-row { align-items: center; }
-.sp-paste .paste-row label { font-weight: 600; color: var(--muted); flex-shrink: 0; }
-.sp-paste select {
-  flex: 1; min-width: 0;
-  font: inherit; font-size: 13px; font-weight: 600; color: var(--ink);
-  background: var(--night-2); border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
-  padding: 8px 10px; cursor: pointer;
-}
-.sp-paste select:focus-visible { outline: 2px solid var(--spotify); outline-offset: 1px; }
 .sp-paste p { margin: 0; font-size: 12px; color: var(--muted); min-height: 1.2em; }
 
 /* custom body colour */
@@ -500,7 +491,7 @@ kbd {
 
 /* phones */
 @media (max-width: 600px) {
-  .sp-paste input, .sp-paste select, .panel input { font-size: 16px; }  /* stops iPhones zooming in */
+  .sp-paste input, .panel input { font-size: 16px; }  /* stops iPhones zooming in */
 }
 @media (hover: none) and (pointer: coarse) {
   .hints .kb { display: none; }
@@ -615,13 +606,6 @@ kbd {
     </div>
   </section>
 
-  <form class="sp-paste" id="spPaste">
-    <label for="spPasteIn" id="spPasteLabel">Play any Spotify link on the iPod</label>
-    <div><input id="spPasteIn" type="text" inputmode="url" placeholder="Paste a link from Spotify (Share → Copy link)" autocomplete="off"></div>
-    <div class="paste-row"><label for="spSaveTo">Save to</label><select id="spSaveTo"></select><button type="submit" id="spPasteBtn">Save</button></div>
-    <p id="spPasteMsg" role="status"></p>
-  </form>
-
   <div class="hints">
     <span>Drag around the wheel to scroll</span>
     <span>Centre button selects</span>
@@ -635,7 +619,7 @@ kbd {
   </div>
 
   <footer class="credits">
-    <p class="made">Created by <em>Aaron</em> · built with Claude</p>
+    <p class="made">Created by <em>Aaron</em></p>
     <p>Music plays through Spotify. Spotify is a trademark of Spotify AB.</p>
   </footer>
   </div>
@@ -1441,7 +1425,7 @@ function render() {
     html = listHTML(plsRows(), "pls");
   } else if (v === "pl") {
     html = pl && pl.items.length ? listHTML(plRows(pl), "pl")
-      : msgHTML("This playlist is empty", "Play something, then press the centre button to add it here. You can also paste a Spotify link below the iPod.");
+      : msgHTML("This playlist is empty", "Play something, then press the centre button and pick Add to Playlist.");
   } else if (v === "addto") {
     html = listHTML(plsRows(), "addto");
   } else if (v === "now" && premiumOn()) {
@@ -1498,7 +1482,7 @@ function render() {
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
       <p><b>IBPOD</b> · version 3</p>
-      <p>Created by <b>Aaron</b>, built with Claude.</p>
+      <p>Created by <b>Aaron</b>.</p>
       <p>Music plays through Spotify. Log in with My Spotify to see your own playlists. With Premium you also get full songs and volume on the wheel.</p>
       <p class="dim">Playlists: ${playlists.length} · Saved links: ${links.length}</p>
       <p class="dim">Your playlists and settings are saved in this browser.</p>
@@ -1518,7 +1502,7 @@ function render() {
       <p><b>⏮ ⏭</b> move through the list you're playing. <b>Hold</b> them to rewind or fast-forward. <b>Shuffle</b> mixes up that list.</p>
       <p><b>Now Playing:</b> the centre button opens Rewind, Forward, Scrub, Add to Playlist and Songs Like This.</p>
       <p><b>Search</b> and <b>For You</b> need you logged into Spotify (My Spotify).</p>
-      <p class="dim">Inside one Spotify playlist, use ⏭ in the Spotify player. To shuffle single songs, paste song links into an IBPOD playlist.</p>
+      <p class="dim">Inside one Spotify playlist, use ⏭ in the Spotify player. To shuffle single songs, add songs from Search to an IBPOD playlist.</p>
       <p><b>Make a playlist:</b> Playlists → + New Playlist. Then play anything and press the centre button on Now Playing to add it.</p>
       <p><b>Battery:</b> it runs down faster while music plays. Click the charging port on the bottom edge of the IBPOD to plug in or unplug the charger.</p>
       <p><b>Settings</b> has colours, screen themes, text size, clicker sound, vibration, wheel speed, backlight and battery options.</p>
@@ -1570,28 +1554,10 @@ function updateSpLink() {
   } else a.hidden = true;
 }
 
-/* ---------- where pasted links get saved ---------- */
-const SAVE = { last: String(load("tackle-ipod-saveto", "links")), forcedFor: null };
-function updateSaveTo(pl) {
-  const box = $("#spSaveTo");
-  if (document.activeElement === box) return;
-  let want = box.value || SAVE.last;
-  // opening a playlist points the picker at it (once, so you can still change it)
-  if (pl && SAVE.forcedFor !== pl.id) want = pl.id;
-  SAVE.forcedFor = pl ? pl.id : null;
-  box.innerHTML = `<option value="links">My Links</option>`
-    + playlists.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")
-    + `<option value="new">+ New playlist</option>`;
-  box.value = want === "new" || want === "links" || playlists.some(p => p.id === want) ? want : "links";
-}
-
 /* ---------- the playlist editor under the iPod ---------- */
 function updatePanel() {
   const pl = view() === "pl" ? curPl() : null;
   $("#plEdit").hidden = !pl;
-  $("#spPasteLabel").textContent = pl ? "Add a Spotify link" : CAN_EMBED ? "Play and save any Spotify link" : "Save any Spotify link";
-  $("#spPasteBtn").textContent = pl || !CAN_EMBED ? "Save" : "Play & save";
-  updateSaveTo(pl);
   if (!pl) { $("#plConfirm").hidden = true; return; }
   if (document.activeElement !== $("#plName")) $("#plName").value = pl.name;
   $("#plItems").innerHTML = pl.items.length
@@ -1605,8 +1571,6 @@ $("#plName").addEventListener("input", e => {
   pl.name = name.slice(0, 40);
   savePlaylists();
   $("#hdrTitle").textContent = pl.name;
-  const opt = [...$("#spSaveTo").options].find(o => o.value === pl.id);
-  if (opt) opt.textContent = pl.name;
 });
 $("#plName").addEventListener("blur", () => updatePanel());
 $("#plItems").addEventListener("click", e => {
@@ -1631,54 +1595,6 @@ $("#plYes").addEventListener("click", () => {
   NAV.sel.pls = Math.min(sel("pls"), playlists.length);
   render();
   toast(`Deleted ${gone.name}`);
-});
-
-/* ---------- pasting Spotify links ---------- */
-function parseSpotify(text) {
-  const m = String(text).trim().match(/^(?:https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(?:embed\/)?|spotify:)(track|album|playlist|artist|episode|show)[/:]([A-Za-z0-9]{10,40})/i);
-  return m ? { kind: m[1].toLowerCase(), id: m[2] } : null;
-}
-$("#spPaste").addEventListener("submit", e => {
-  e.preventDefault();
-  const msg = $("#spPasteMsg"), input = $("#spPasteIn");
-  if (BAT.dead) { msg.textContent = "The iPod's battery is empty. Click the charging port on its bottom edge first."; return; }
-  const link = parseSpotify(input.value);
-  if (!link) { msg.textContent = "That isn't a Spotify link. In Spotify, press Share → Copy link, then paste it here."; return; }
-  const type = SP_KINDS[link.kind];
-  const item = spItem(`${type} from a link`, "", type, link.kind, link.id);
-  input.value = "";
-  // ask Spotify for the real name; if that fails the plain name stays
-  fetch("https://open.spotify.com/oembed?url=" + encodeURIComponent(item.url))
-    .then(r => r.ok ? r.json() : null)
-    .then(j => { if (j && j.title) { item.name = String(j.title).slice(0, 120); saveLinks(); savePlaylists(); render(); } })
-    .catch(() => {});
-  // save it where the "Save to" picker says
-  let target = $("#spSaveTo").value;
-  if (target === "new") target = playlists[newPlaylist()].id;
-  let where;
-  const pi = playlists.findIndex(p => p.id === target);
-  if (pi >= 0) {
-    addToPlaylist(pi, item);
-    where = playlists[pi].name;
-  } else {
-    target = "links";
-    links = [item, ...links.filter(x => x.uri !== item.uri)].slice(0, 30);
-    saveLinks();
-    where = "My Links (in Browse)";
-  }
-  SAVE.last = target;
-  store("tackle-ipod-saveto", target);
-  $("#spSaveTo").value = target;
-  if (view() === "pl") {
-    msg.textContent = `Saved to ${where}.`;
-    render();
-    return;
-  }
-  initAudio();
-  PLY.queue = null;
-  NAV.stack = ["menu"];
-  playItem(item);
-  msg.textContent = CAN_EMBED ? `Playing, and saved to ${where}.` : `Saved to ${where}. Open it with the green button.`;
 });
 
 /* =========================================================
