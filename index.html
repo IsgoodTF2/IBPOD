@@ -497,6 +497,29 @@ kbd {
 .credits .made { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; color: var(--ink); margin: 0; }
 .credits .made em { font-style: normal; color: var(--hi-1); }
 .credits p { margin: 0; }
+.credits a { color: var(--ink); }
+.credits a:focus-visible, .consent a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 3px; }
+.credits .legal { font-size: 12px; }
+
+/* first-visit "I agree" box (YouTube's rules ask for it) */
+.consent { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(5, 9, 18, .82); backdrop-filter: blur(6px); }
+.consent-card {
+  width: min(100%, 30rem); max-height: 100%; overflow-y: auto;
+  background: var(--night-2); color: var(--ink);
+  border: 1px solid rgba(255,255,255,.14); border-radius: 16px;
+  padding: 22px; display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.6);
+  font-size: 14.5px; line-height: 1.55;
+}
+.consent-card h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.35rem; margin: 0; }
+.consent-card p { margin: 0; }
+.consent-card ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.consent-card a { color: #ff6b84; font-weight: 700; }
+.consent-card button {
+  align-self: flex-start; font: inherit; font-weight: 700; font-size: 15px;
+  color: #fff; background: var(--yt); border: 0; border-radius: 10px; padding: 10px 22px; cursor: pointer;
+}
+.consent-card button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
   .battery[data-charging="true"] i, .ipod[data-dead="true"] .port .slot { animation: none; }
@@ -548,7 +571,7 @@ kbd {
   </section>
 
   <a class="sp-link" id="spLink" href="https://www.youtube.com/" target="_blank" rel="noopener" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.6 12 4.6 12 4.6s-7 0-8.9.5A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12a31 31 0 0 0 .5 4.8 3 3 0 0 0 2.1 2.1c1.9.5 8.9.5 8.9.5s7 0 8.9-.5a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .5-4.8 31 31 0 0 0-.5-4.8zM9.7 15V9l5.8 3z"/></svg>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z"/></svg>
     <span id="spLinkText">Open on YouTube</span>
   </a>
 
@@ -602,10 +625,24 @@ kbd {
 
   <footer class="credits">
     <p class="made">Created by <em>Aaron</em></p>
-    <p>Music plays through YouTube. YouTube is a trademark of Google LLC.</p>
+    <p>Music plays through YouTube. YouTube is a trademark of Google LLC. SpotPod isn't made by YouTube, Google or Apple.</p>
+    <p class="legal"><a href="terms.html">Terms &amp; Privacy</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms of Service</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a></p>
   </footer>
   </div>
 </main>
+
+<div class="consent" id="consent" hidden role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+  <div class="consent-card">
+    <h2 id="consentTitle">Welcome to SpotPod</h2>
+    <p>SpotPod is a free music player that plays music from <b>YouTube</b>.</p>
+    <ul>
+      <li>By using SpotPod, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms of Service</a> and to SpotPod's <a href="terms.html" target="_blank" rel="noopener">Terms &amp; Privacy</a>.</li>
+      <li>SpotPod uses YouTube API Services, so the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a> applies too.</li>
+      <li>Your playlists and settings stay in this browser only. YouTube's player may use cookies.</li>
+    </ul>
+    <button type="button" id="agree">I agree</button>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -637,7 +674,11 @@ function clickSound() {
 function load(key, fallback) {
   try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; } catch (e) { return fallback; }
 }
+// nothing is saved until you've pressed "I agree" (or after Delete My Data)
+const AGREE_VERSION = "2026-10-12";
+let canSave = load("spotpod-agreed", "") === AGREE_VERSION;
 function store(key, value) {
+  if (!canSave) return;
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
 }
 
@@ -657,13 +698,13 @@ const ytKey = () => YT_API_KEY || String(load("spotpod-yt-key", "") || "");
 const decode = s => { const t = document.createElement("textarea"); t.innerHTML = String(s || ""); return t.value; };
 const YT_URI = /^yt:([A-Za-z0-9_-]{11})$/;
 const ytId = it => (String(it && it.uri).match(YT_URI) || [])[1] || "";
-const ytItem = (id, name, by) => ({ name, by, type: "Song", uri: "yt:" + id, url: "https://www.youtube.com/watch?v=" + id, art: `https://i.ytimg.com/vi/${id}/mqdefault.jpg` });
+const ytItem = (id, name, by, t) => ({ name, by, type: "Song", uri: "yt:" + id, url: "https://www.youtube.com/watch?v=" + id, art: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`, t: t || Date.now() });
 
 // anything read back from storage is checked before use
 function cleanItem(x) {
   if (!x || typeof x.name !== "string") return null;
   const m = String(x.uri).match(YT_URI);
-  return m ? ytItem(m[1], x.name.slice(0, 140), String(x.by || "").slice(0, 80)) : null;
+  return m ? ytItem(m[1], x.name.slice(0, 140), String(x.by || "").slice(0, 80), Number.isFinite(x.t) ? x.t : Date.now()) : null;
 }
 let playlists = (Array.isArray(load("tackle-ipod-playlists", [])) ? load("tackle-ipod-playlists", []) : [])
   .filter(p => p && typeof p.name === "string" && Array.isArray(p.items))
@@ -774,6 +815,7 @@ function ytPlayerReady() {
   if (!ytWait) ytWait = new Promise((resolve, reject) => {
     window.onYouTubeIframeAPIReady = () => {
       yt = new YT.Player("ytPlayer", {
+        host: "https://www.youtube-nocookie.com",   // YouTube's privacy-enhanced mode
         width: "100%", height: "100%",
         playerVars: { playsinline: 1, rel: 0 },
         events: { onReady: () => resolve(yt), onStateChange: ytStateChange, onError: ytError },
@@ -872,6 +914,64 @@ setInterval(() => {
   $("#npFoot").classList.toggle("scrub", !!NAV.scrub);
 }, 250);
 
+/* ---------- the 30-day rule ----------
+   YouTube's rules say song details saved from its API must be refreshed or
+   deleted within 30 days. Saved names are refreshed after 25 days (one cheap
+   request for up to 50 songs); any still too old after 30 lose their name. */
+const DAY = 86400000;
+async function refreshSaved() {
+  if (!CAN_PLAY || !canSave) return;   // waits for "I agree"
+  const all = [...playlists.flatMap(p => p.items), ...history];
+  const old = all.filter(it => Date.now() - it.t > 25 * DAY);
+  if (!old.length) return;
+  const fresh = {};
+  let asked = false;
+  if (ytKey()) {
+    const ids = [...new Set(old.map(ytId))];
+    try {
+      for (let i = 0; i < ids.length; i += 50) {
+        const u = new URL("https://www.googleapis.com/youtube/v3/videos");
+        u.search = new URLSearchParams({ part: "snippet", id: ids.slice(i, i + 50).join(","), key: ytKey() }).toString();
+        const r = await fetch(u);
+        if (!r.ok) throw new Error("refresh failed");
+        ((await r.json()).items || []).forEach(v => { fresh[v.id] = { name: decode(v.snippet.title), by: decode(v.snippet.channelTitle).replace(/ - Topic$/, "") }; });
+      }
+      asked = true;
+    } catch (e) {}
+  }
+  for (const it of old) {
+    const f = fresh[ytId(it)];
+    if (f) { it.name = f.name; it.by = f.by; it.t = Date.now(); }
+    else if (asked) { it.name = "Video no longer on YouTube"; it.by = ""; it.t = Date.now(); }
+    else if (Date.now() - it.t > 30 * DAY) { it.name = "YouTube song"; it.by = ""; it.t = Date.now(); }
+  }
+  savePlaylists();
+  store("spotpod-history", history);
+}
+setInterval(refreshSaved, 6 * 3600000);
+
+// Settings → Delete My Data: wipes everything SpotPod saved in this browser
+const SAVED_KEYS = ["tackle-ipod", "tackle-ipod-playlists", "tackle-ipod-battery", "tackle-ipod-links", "tackle-ipod-saveto",
+  "spotpod-history", "spotpod-cache", "spotpod-agreed", "spotpod-yt-key", "ibpod-spotify", "ibpod-client-id", "ibpod-pkce"];
+function deleteMyData() {
+  canSave = false;   // so nothing is saved again while the page reloads
+  SAVED_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+  location.reload();
+}
+// SpotPod no longer uses Spotify: remove anything the old version saved
+["ibpod-spotify", "ibpod-client-id", "ibpod-pkce", "tackle-ipod-links", "tackle-ipod-saveto"].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+
+// the first-visit "I agree" box
+if (!canSave) { $("#consent").hidden = false; setTimeout(() => $("#agree").focus(), 50); }
+$("#agree").addEventListener("click", () => {
+  canSave = true;
+  store("spotpod-agreed", AGREE_VERSION);
+  saveSettings(); savePlaylists(); saveBattery();
+  refreshSaved();
+  $("#consent").hidden = true;
+  $("#wheel").focus();
+});
+
 /* setup box: SpotPod's YouTube key */
 $("#keySite").textContent = location.origin + "/*";
 $("#copySite").addEventListener("click", () => {
@@ -946,7 +1046,9 @@ const settingsRows = () => [
   { label: "Background Glow", toggle: "glow" },
   { label: "Controls", go: "help" },
   { label: "About", go: "about" },
+  { label: "Terms & Privacy", act: "terms" },
   { label: "Reset Settings", go: "reset" },
+  { label: "Delete My Data", go: "wipe" },
 ];
 
 // blend two hex colours (t = how much of b)
@@ -1044,7 +1146,7 @@ function rowCount(v) {
     case "browse": return BROWSE.length;
     case "settings": return settingsRows().length;
     case "choice": return OPTIONS[NAV.choice].length;
-    case "reset": return 2;
+    case "reset": case "wipe": return 2;
     case "foryou": return FOR_YOU.length;
     case "nowmenu": return nowMenu().length;
     case "find": return NAV.find && NAV.find.items ? NAV.find.items.length : 0;
@@ -1093,9 +1195,9 @@ function render() {
   const v = view();
   const pl = curPl();
   $("#hdrTitle").textContent = {
-    menu: "SpotPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse",
+    menu: "SpotPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse YouTube",
     list: NAV.list ? NAV.list.label : "Music", addto: "Add to Playlist", help: "Controls",
-    settings: "Settings", ytsetup: "YouTube Setup", foryou: "For You", nowmenu: "Song", find: "Search", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings",
+    settings: "Settings", ytsetup: "YouTube Setup", foryou: "For You", nowmenu: "Song", find: "Search YouTube", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings", wipe: "Delete My Data",
   }[v];
   let html = "";
   if (v === "menu") {
@@ -1151,6 +1253,8 @@ function render() {
     else html = listHTML(F.items.map(it => ({ label: it.name })), "find");
   } else if (v === "reset") {
     html = listHTML([{ label: "Cancel" }, { label: "Reset all settings" }], "reset");
+  } else if (v === "wipe") {
+    html = `<div class="hint-bar">Deletes your playlists, settings and history from this browser.</div>` + listHTML([{ label: "Cancel" }, { label: "Delete everything" }], "wipe");
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
       <p><b>SpotPod</b> · version 4</p>
@@ -1168,7 +1272,7 @@ function render() {
       <p><b>For You</b> learns from the songs you play on SpotPod.</p>
       <p><b>Make a playlist:</b> Playlists → + New Playlist, then add songs from Now Playing.</p>
       <p><b>Battery:</b> click the charging port on the bottom edge to plug in or unplug.</p>
-      <p class="dim">Playlists and settings save in this browser.</p>
+      <p class="dim">Playlists and settings save in this browser. Settings → Terms & Privacy explains more, and Settings → Delete My Data wipes them.</p>
     </div></div>`;
   }
   $("#view").innerHTML = html;
@@ -1200,7 +1304,7 @@ function updateSpLink() {
   const it = highlighted(), a = $("#spLink");
   if (it && it.url) {
     a.href = it.url;
-    $("#spLinkText").textContent = `Open “${it.name}” on YouTube`;
+    $("#spLinkText").textContent = `Watch “${it.name}” on YouTube`;
     a.hidden = false;
   } else a.hidden = true;
 }
@@ -1332,8 +1436,8 @@ function showBattery() {
     $("#deadFill").style.width = Math.max(4, lvl) + "%";
     $("#deadBolt").toggleAttribute("hidden", !BAT.charging);
     $("#deadText").innerHTML = BAT.charging
-      ? `<b>Charging… ${pct}%</b>The iPod turns on at ${WAKE_AT}%.`
-      : `<b>Battery empty</b>Click the charging port on the bottom of the iPod to charge it.`;
+      ? `<b>Charging… ${pct}%</b>SpotPod turns on at ${WAKE_AT}%.`
+      : `<b>Battery empty</b>Click the charging port on the bottom of the SpotPod to charge it.`;
     $("#hdrState").textContent = "";
     $("#stage").dataset.playing = false;
   }
@@ -1414,6 +1518,7 @@ function select() {
       push("choice");
       NAV.sel.choice = Math.max(0, OPTIONS[r.key].findIndex(o => o[0] === S[r.key]));
     } else if (r.toggle) flip(r.toggle);
+    else if (r.act === "terms") { window.open("terms.html", "_blank", "noopener"); toast("Opened Terms & Privacy"); }
     else { if (r.go === "help" || r.go === "about") NAV.help = 0; push(r.go); }
   } else if (v === "choice") {
     const [val, label] = OPTIONS[NAV.choice][s];
@@ -1426,6 +1531,9 @@ function select() {
       toast(`${OPTION_TITLES[NAV.choice]}: ${label}`);
       NAV.stack.pop();
     }
+  } else if (v === "wipe") {
+    if (s === 1) { deleteMyData(); return; }
+    NAV.stack.pop();
   } else if (v === "reset") {
     if (s === 1) {
       Object.assign(S, DEFAULTS);
@@ -1445,7 +1553,7 @@ function select() {
     if (it) { playQueue(L.label, L.items, s, false); return; }
   } else if (v === "pls") {
     openPl(s === 0 ? newPlaylist() : s - 1);
-    if (s === 0) toast("New playlist made. Rename it below the iPod.");
+    if (s === 0) toast("New playlist made. Rename it next to the SpotPod.");
   } else if (v === "pl") {
     const pl = curPl();
     if (pl && pl.items.length) { playQueue(pl.name, pl.items, s === 0 ? 0 : s - 1, s === 0); return; }
@@ -1562,6 +1670,7 @@ $("#center").addEventListener("click", e => { e.preventDefault(); select(); });
 
 window.addEventListener("keydown", e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (!$("#consent").hidden) return;
   const k = e.key;
   // typing in a box never moves the iPod; on other buttons only Enter/Space belong to the button
   const t = e.target instanceof Element ? e.target : null;
@@ -1596,6 +1705,7 @@ window.addEventListener("resize", fit);
 fit();
 applySettings();
 showBattery();
+refreshSaved();
 render();
 })();
 </script>
