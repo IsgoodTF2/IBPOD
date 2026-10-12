@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IBPOD</title>
-<meta name="description" content="IBPOD: a click-wheel music player for your Spotify playlists.">
+<title>SpotPod</title>
+<meta name="description" content="SpotPod: a click-wheel music player for your Spotify playlists.">
 <meta name="theme-color" content="#0a1120">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="IBPOD">
+<meta name="apple-mobile-web-app-title" content="SpotPod">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -49,7 +49,7 @@ body {
   place-items: center;
   overflow-x: hidden;
 }
-/* phones: one column. desktops: the IBPOD on the left, its tools on the right */
+/* phones: one column. desktops: the SpotPod on the left, its tools on the right */
 .stage { display: flex; flex-direction: column; align-items: center; gap: 18px; position: relative; width: 100%; max-width: 62rem; }
 .side { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; position: relative; z-index: 1; }
 @media (min-width: 860px) and (min-height: 520px) {
@@ -523,7 +523,7 @@ kbd {
 <body>
 <main class="stage" id="stage">
   <div class="glow-layer" aria-hidden="true"><div class="glow" id="glow"></div></div>
-  <h1 class="title">IBPOD <span>· your Spotify, click-wheel style</span></h1>
+  <h1 class="title">SpotPod <span>· your Spotify, click-wheel style</span></h1>
 
   <div class="ipod-wrap" id="wrap">
     <div class="ipod" id="ipod" data-body="silver" data-wheel="match">
@@ -531,7 +531,7 @@ kbd {
         <div class="screen" id="screen" aria-live="polite" data-theme="classic" data-hi="blue" data-text="normal">
           <div class="hdr">
             <span class="hdr-state" id="hdrState"></span>
-            <span class="hdr-title" id="hdrTitle">IBPOD</span>
+            <span class="hdr-title" id="hdrTitle">SpotPod</span>
             <span class="bat" id="bat"><span id="batPct">100%</span><span class="battery" id="battery"><i id="batFill"></i></span></span>
           </div>
           <div class="view" id="view"></div>
@@ -567,7 +567,7 @@ kbd {
     <p><b>You're hearing 30-second previews.</b> Spotify only plays full songs when you're logged in, in this same browser.</p>
     <ol>
       <li><a href="https://accounts.spotify.com/login" target="_blank" rel="noopener">Log into Spotify</a> (opens a new tab)</li>
-      <li>Come back here and reload IBPOD</li>
+      <li>Come back here and reload SpotPod</li>
     </ol>
   </div>
 
@@ -578,10 +578,10 @@ kbd {
   </form>
 
   <section class="panel setup" id="setupPanel" hidden aria-label="Set up Spotify Premium">
-    <b>Set up Spotify for IBPOD (owner only, one time)</b>
+    <b>Set up Spotify for SpotPod (owner only, one time)</b>
     <ol>
       <li>Go to <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and log in with Spotify.</li>
-      <li>Click <b>Create app</b>. Name it <b>IBPOD</b>. For <b>Redirect URI</b>, add <code id="redirectUri"></code> <button type="button" class="ghost" id="copyRedirect">Copy</button></li>
+      <li>Click <b>Create app</b>. Name it <b>SpotPod</b>. For <b>Redirect URI</b>, add <code id="redirectUri"></code> <button type="button" class="ghost" id="copyRedirect">Copy</button></li>
       <li>Tick <b>Web API</b> and <b>Web Playback SDK</b>, agree to the terms and click <b>Save</b>.</li>
       <li>Open the app's <b>Settings</b>, copy the <b>Client ID</b> and paste it here:</li>
     </ol>
@@ -832,17 +832,17 @@ function queueStep(d) {
 
 /* =========================================================
    SPOTIFY PREMIUM MODE
-   With Spotify Premium, IBPOD logs into Spotify and becomes a real Spotify
+   With Spotify Premium, SpotPod logs into Spotify and becomes a real Spotify
    player (Spotify's Web Playback SDK): full songs, private playlists,
    shuffle and skip inside playlists, and volume on the wheel.
    ========================================================= */
-const SPOTIFY_CLIENT_ID = "6114f72793e24ed695cf4723f934030f";   // the IBPOD app's Client ID from developer.spotify.com (safe to share)
+const SPOTIFY_CLIENT_ID = "6114f72793e24ed695cf4723f934030f";   // the SpotPod app's Client ID from developer.spotify.com (safe to share)
 const clientId = () => SPOTIFY_CLIENT_ID || String(load("ibpod-client-id", "") || "");
 const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, "");
 const SCOPES = "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read";
 const PREM = { tokens: load("ibpod-spotify", null), ready: false, deviceId: null, player: null, track: null, me: null, err: null, pos: 0, dur: 0, paused: true, at: 0, volUntil: 0, shownUri: null };
 if (PREM.tokens && (typeof PREM.tokens.access !== "string" || typeof PREM.tokens.refresh !== "string")) PREM.tokens = null;
-// connected: someone is logged into their own Spotify. premiumOn: and it's Premium, so IBPOD plays full songs itself
+// connected: someone is logged into their own Spotify. premiumOn: and it's Premium, so SpotPod plays full songs itself
 const connected = () => CAN_EMBED && !!PREM.tokens && !!clientId();
 const premiumOn = () => connected() && !PREM.free;
 const LIKED = { name: "Liked Songs", by: "You", type: "Songs", uri: "spotify:liked", url: "https://open.spotify.com/collection/tracks" };
@@ -918,7 +918,7 @@ async function startPremium() {
   render();
   if (!connected() || PREM.free) return;   // Free accounts: playlists yes, Spotify's full player no
   window.onSpotifyWebPlaybackSDKReady = () => {
-    const p = new Spotify.Player({ name: "IBPOD", getOAuthToken: cb => accessToken().then(cb, () => {}), volume: S.vol / 16 });
+    const p = new Spotify.Player({ name: "SpotPod", getOAuthToken: cb => accessToken().then(cb, () => {}), volume: S.vol / 16 });
     PREM.player = p;
     p.addListener("ready", ({ device_id }) => { PREM.deviceId = device_id; PREM.ready = true; PREM.err = null; render(); });
     p.addListener("not_ready", () => { PREM.ready = false; });
@@ -1013,7 +1013,7 @@ async function searchSpotify(q) {
 }
 
 // ---- recommendations ----
-// Spotify switched off its own "recommendations" for new apps, so IBPOD
+// Spotify switched off its own "recommendations" for new apps, so SpotPod
 // makes its own from your top artists, their genres and what you play most
 async function searchTracks(q) {
   try {
@@ -1027,7 +1027,7 @@ async function mixForYou() {
     api("/me/top/tracks?limit=50&time_range=medium_term").catch(() => ({ items: [] })),
   ]);
   const artists = (top.items || []).filter(Boolean);
-  if (!artists.length) throw { message: "Listen to more music on Spotify so IBPOD can learn what you like." };
+  if (!artists.length) throw { message: "Listen to more music on Spotify so SpotPod can learn what you like." };
   const known = new Set((mine.items || []).map(t => t.uri));
   const genres = [...new Set(artists.flatMap(a => a.genres || []))].slice(0, 3);
   const lists = await Promise.all([...artists.slice(0, 5).map(a => searchTracks(`artist:"${a.name}"`)), ...genres.map(g => searchTracks(`genre:"${g}"`))]);
@@ -1324,7 +1324,7 @@ const sel = v => NAV.sel[v] || 0;
 const curPl = () => playlists.find(p => p.id === NAV.pl) || null;
 
 // Spotify's equalizer lives in the Spotify app's settings; websites can't open it,
-// so IBPOD shows the way there
+// so SpotPod shows the way there
 const EQ_GUIDES = [
   { label: "On a phone", steps: [
     "Open the Spotify app.",
@@ -1404,7 +1404,7 @@ function render() {
   const v = view();
   const pl = curPl();
   $("#hdrTitle").textContent = {
-    menu: "IBPOD", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse",
+    menu: "SpotPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse",
     search: "Search Spotify", eq: "Equalizer", eqsteps: (EQ_GUIDES[NAV.eqGuide] || EQ_GUIDES[0]).label, list: NAV.list ? NAV.list.label : "Spotify", addto: "Add to Playlist", help: "Controls",
     settings: "Settings", account: "Spotify Account", foryou: "For You", nowmenu: "Song", find: "Search", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings",
   }[v];
@@ -1460,8 +1460,8 @@ function render() {
     html = listHTML(OPTIONS[NAV.choice].map(o => ({ label: o[1], value: S[NAV.choice] === o[0] ? "✓" : null })), "choice");
   } else if (v === "account") {
     const rows = accountRows();
-    if (!CAN_EMBED) html = msgHTML("Use the IBPOD website", "Logging into Spotify works on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
-    else if (!clientId()) html = msgHTML("Not set up yet", "IBPOD's owner needs to finish the Spotify setup under the IBPOD.");
+    if (!CAN_EMBED) html = msgHTML("Use the SpotPod website", "Logging into Spotify works on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
+    else if (!clientId()) html = msgHTML("Not set up yet", "SpotPod's owner needs to finish the Spotify setup under the SpotPod.");
     else {
       const hint = PREM.err || (!PREM.tokens ? "Log in to see your own playlists. Premium plays full songs." : "");
       html = (hint ? `<div class="hint-bar">${esc(hint)}</div>` : "") + listHTML(rows.map(r => ({ label: r.label })), "account");
@@ -1474,14 +1474,14 @@ function render() {
     const F = NAV.find;
     if (F.loading) html = msgHTML("", "Searching Spotify…", true);
     else if (F.err) html = msgHTML(F.err[0], F.err[1]);
-    else if (!F.items) html = msgHTML("Search Spotify", "Type in the search box below the IBPOD, then press Search.");
+    else if (!F.items) html = msgHTML("Search Spotify", "Type in the search box below the SpotPod, then press Search.");
     else if (!F.items.length) html = msgHTML("Nothing found", "Try different words.");
     else html = listHTML(F.items.map(it => ({ label: it.by && it.type === "Song" ? `${it.name} · ${it.by}` : it.name, value: it.type })), "find");
   } else if (v === "reset") {
     html = listHTML([{ label: "Cancel" }, { label: "Reset all settings" }], "reset");
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
-      <p><b>IBPOD</b> · version 3</p>
+      <p><b>SpotPod</b> · version 3</p>
       <p>Created by <b>Aaron</b>.</p>
       <p>Music plays through Spotify. Log in with My Spotify to see your own playlists. With Premium you also get full songs and volume on the wheel.</p>
       <p class="dim">Playlists: ${playlists.length} · Saved links: ${links.length}</p>
@@ -1493,7 +1493,7 @@ function render() {
     const g = EQ_GUIDES[NAV.eqGuide] || EQ_GUIDES[0];
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
       <ol class="steps">${g.steps.map(t => `<li>${t}</li>`).join("")}</ol>
-      <p class="dim">Can't find it? Update the Spotify app. The equalizer changes music played in the Spotify app, not the IBPOD player in your browser.</p>
+      <p class="dim">Can't find it? Update the Spotify app. The equalizer changes music played in the Spotify app, not the SpotPod player in your browser.</p>
     </div></div>`;
   } else if (v === "help") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
@@ -1502,9 +1502,9 @@ function render() {
       <p><b>⏮ ⏭</b> move through the list you're playing. <b>Hold</b> them to rewind or fast-forward. <b>Shuffle</b> mixes up that list.</p>
       <p><b>Now Playing:</b> the centre button opens Rewind, Forward, Scrub, Add to Playlist and Songs Like This.</p>
       <p><b>Search</b> and <b>For You</b> need you logged into Spotify (My Spotify).</p>
-      <p class="dim">Inside one Spotify playlist, use ⏭ in the Spotify player. To shuffle single songs, add songs from Search to an IBPOD playlist.</p>
+      <p class="dim">Inside one Spotify playlist, use ⏭ in the Spotify player. To shuffle single songs, add songs from Search to an SpotPod playlist.</p>
       <p><b>Make a playlist:</b> Playlists → + New Playlist. Then play anything and press the centre button on Now Playing to add it.</p>
-      <p><b>Battery:</b> it runs down faster while music plays. Click the charging port on the bottom edge of the IBPOD to plug in or unplug the charger.</p>
+      <p><b>Battery:</b> it runs down faster while music plays. Click the charging port on the bottom edge of the SpotPod to plug in or unplug the charger.</p>
       <p><b>Settings</b> has colours, screen themes, text size, clicker sound, vibration, wheel speed, backlight and battery options.</p>
       <p class="dim">Rename a playlist or remove songs in the box under the iPod. Playlists save in this browser.</p>
       <p class="dim">Logged into Spotify in this browser? You get full songs. If not, 30-second previews.</p>
@@ -1692,12 +1692,12 @@ function showBattery() {
 setInterval(batteryTick, 1000);
 window.addEventListener("pagehide", saveBattery);
 
-/* ---------- the search box under the IBPOD ---------- */
+/* ---------- the search box under the SpotPod ---------- */
 $("#findPanel").addEventListener("submit", async e => {
   e.preventDefault();
   const q = $("#findIn").value.trim();
   if (!q) { $("#findMsg").textContent = "Type a song, artist, album or playlist first."; return; }
-  if (BAT.dead) { $("#findMsg").textContent = "The IBPOD's battery is empty. Charge it first."; return; }
+  if (BAT.dead) { $("#findMsg").textContent = "The SpotPod's battery is empty. Charge it first."; return; }
   $("#findIn").blur();   // so the arrow keys move through the results
   $("#findMsg").textContent = "";
   const F = NAV.find = { label: "Search", items: null, loading: true, q };
@@ -1836,7 +1836,7 @@ function select() {
     } else if (r.act === "like") {
       const t = PREM.track;
       const artist = t ? t.artist : (PLY.current.by || "").split(",")[0].trim();
-      if (!artist) { toast("IBPOD doesn't know this song's artist"); }
+      if (!artist) { toast("SpotPod doesn't know this song's artist"); }
       else { const L = { label: "Like This", items: null, loader: () => songsLike(artist, t && t.artistId, t && t.uri) }; openList(L); loadList(L); return; }
     }
   } else if (v === "foryou") {

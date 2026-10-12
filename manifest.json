@@ -1,6 +1,6 @@
 {
-  "name": "IBPOD",
-  "short_name": "IBPOD",
+  "name": "SpotPod",
+  "short_name": "SpotPod",
   "description": "A click-wheel music player for your Spotify playlists.",
   "start_url": "./",
   "scope": "./",

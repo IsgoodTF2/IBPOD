@@ -1,11 +1,11 @@
-# IBPOD
+# SpotPod
 
 A click-wheel music player for your Spotify playlists, in your browser.
 
 **Play it:** https://isgoodtf2.github.io/IBPOD/
 
 - Spin the wheel to scroll, press the centre button to pick, MENU to go back
-- My Spotify, Browse lists and your own IBPOD playlists
+- My Spotify, Browse lists and your own SpotPod playlists
 - Shuffle, a battery you charge by clicking the port on the bottom, and lots of Settings
 - Works on phones and computers; add it to your home screen to use it like an app
 
