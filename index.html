@@ -289,6 +289,9 @@ body.no-glow .glow-layer { display: none; }
 .bar { height: 9px; border: 1px solid var(--chev); border-radius: 1px; background: linear-gradient(var(--hdr-1), var(--hdr-2)); overflow: hidden; }
 .vol .bar { flex: 1; }
 .bar i { display: block; height: 100%; width: 0; background: linear-gradient(var(--hi-1), var(--hi-2)); }
+.np-foot.scrub .bar { outline: 2px solid var(--hi-1); outline-offset: 1px; }
+.np-foot.scrub .times::before { content: "Scrubbing"; position: absolute; left: 50%; translate: -50% 0; font-weight: 700; color: var(--hi-2); }
+.times { position: relative; }
 .times { display: flex; justify-content: space-between; font-size: 10px; margin-top: 3px; font-variant-numeric: tabular-nums; color: var(--soft); }
 .vol svg { width: 12px; height: 12px; fill: var(--soft); flex-shrink: 0; }
 
@@ -577,6 +580,12 @@ kbd {
     </ol>
   </div>
 
+  <form class="sp-paste" id="findPanel" hidden role="search">
+    <label for="findIn">Search Spotify</label>
+    <div><input id="findIn" type="search" placeholder="Song, artist, album or playlist" autocomplete="off" enterkeyhint="search"><button type="submit">Search</button></div>
+    <p id="findMsg" role="status"></p>
+  </form>
+
   <section class="panel setup" id="setupPanel" hidden aria-label="Set up Spotify Premium">
     <b>Set up Spotify for IBPOD (owner only, one time)</b>
     <ol>
@@ -621,6 +630,8 @@ kbd {
     <span class="kb"><kbd>Esc</kbd> menu</span>
     <span class="kb"><kbd>Space</kbd> play</span>
     <span class="kb"><kbd>←</kbd> <kbd>→</kbd> skip</span>
+    <span class="kb"><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> rewind</span>
+    <span class="kb"><kbd>/</kbd> search</span>
   </div>
 
   <footer class="credits">
@@ -951,7 +962,8 @@ function onPremiumState(st) {
   if (t) {
     const imgs = (t.album && t.album.images) || [];
     const img = imgs.slice().sort((a, b) => Math.abs((a.width || 300) - 300) - Math.abs((b.width || 300) - 300))[0];
-    PREM.track = { name: t.name, artists: (t.artists || []).map(a => a.name).join(", "), album: t.album ? t.album.name : "", art: img ? img.url : "", uri: t.uri };
+    const a0 = (t.artists || [])[0] || {};
+    PREM.track = { name: t.name, artists: (t.artists || []).map(a => a.name).join(", "), album: t.album ? t.album.name : "", art: img ? img.url : "", uri: t.uri, artist: a0.name || "", artistId: String(a0.uri || "").split(":")[2] || "" };
   }
   PREM.pos = st.position; PREM.dur = st.duration; PREM.paused = st.paused; PREM.at = performance.now();
   onPlayback({ position: st.position, duration: st.duration, isPaused: st.paused });
@@ -985,18 +997,104 @@ async function premiumPlay(item) {
     toast(e.status === 404 ? "Spotify couldn't find that" : e.status === 403 ? "Spotify won't play that here" : String(e.message || "Spotify couldn't play that"));
   }
 }
-// your own playlists, live from Spotify (private ones too)
-async function loadMine(L) {
+// a list whose items come from Spotify when you open it
+async function loadList(L) {
   L.items = null; L.err = null; L.loading = true;
   render();
-  try {
-    const j = await api("/me/playlists?limit=50");
-    L.items = [LIKED, ...(j.items || []).filter(Boolean).map(p => cleanItem({ uri: p.uri, name: p.name || "Playlist", by: p.owner && p.owner.display_name || "", type: "Playlist" })).filter(Boolean)];
-  } catch (e) {
-    L.err = ["Couldn't load your playlists", String(e.message || "Press the centre button to try again.")];
-  }
+  try { L.items = await L.loader(); }
+  catch (e) { L.err = ["Couldn't load that", String((e && e.message) || "Press the centre button to try again.")]; }
   L.loading = false;
   if (NAV.list === L) render();
+}
+const trackItem = t => t && cleanItem({ uri: t.uri, name: t.name || "Song", by: (t.artists || []).map(a => a.name).join(", "), type: "Song" });
+const shuffled = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+// your own playlists, live from Spotify (private ones too)
+const myPlaylists = async () => {
+  const j = await api("/me/playlists?limit=50");
+  return [LIKED, ...(j.items || []).filter(Boolean).map(p => cleanItem({ uri: p.uri, name: p.name || "Playlist", by: p.owner && p.owner.display_name || "", type: "Playlist" })).filter(Boolean)];
+};
+const loadMine = L => { L.loader = myPlaylists; return loadList(L); };
+
+// ---- search (Spotify allows up to 10 results of each kind) ----
+async function searchSpotify(q) {
+  const j = await api(`/search?type=track,artist,album,playlist&limit=10&q=${encodeURIComponent(q)}`);
+  const pick = (k, n) => ((j[k] && j[k].items) || []).filter(Boolean).slice(0, n);
+  return [
+    ...pick("tracks", 10).map(trackItem),
+    ...pick("artists", 3).map(a => cleanItem({ uri: a.uri, name: a.name, by: "", type: "Artist" })),
+    ...pick("albums", 3).map(a => cleanItem({ uri: a.uri, name: a.name, by: (a.artists || []).map(x => x.name).join(", "), type: "Album" })),
+    ...pick("playlists", 3).map(p => cleanItem({ uri: p.uri, name: p.name, by: p.owner && p.owner.display_name || "", type: "Playlist" })),
+  ].filter(Boolean);
+}
+
+// ---- recommendations ----
+// Spotify switched off its own "recommendations" for new apps, so IBPOD
+// makes its own from your top artists, their genres and what you play most
+async function searchTracks(q) {
+  try {
+    const j = await api(`/search?type=track&limit=10&q=${encodeURIComponent(q)}`);
+    return ((j.tracks && j.tracks.items) || []).filter(Boolean);
+  } catch (e) { return []; }
+}
+async function mixForYou() {
+  const [top, mine] = await Promise.all([
+    api("/me/top/artists?limit=6&time_range=medium_term"),
+    api("/me/top/tracks?limit=50&time_range=medium_term").catch(() => ({ items: [] })),
+  ]);
+  const artists = (top.items || []).filter(Boolean);
+  if (!artists.length) throw { message: "Listen to more music on Spotify so IBPOD can learn what you like." };
+  const known = new Set((mine.items || []).map(t => t.uri));
+  const genres = [...new Set(artists.flatMap(a => a.genres || []))].slice(0, 3);
+  const lists = await Promise.all([...artists.slice(0, 5).map(a => searchTracks(`artist:"${a.name}"`)), ...genres.map(g => searchTracks(`genre:"${g}"`))]);
+  const seen = new Set(), out = [];
+  for (const t of shuffled(lists.flat())) {
+    if (!t.uri || known.has(t.uri) || seen.has(t.uri)) continue;
+    seen.add(t.uri);
+    out.push(trackItem(t));
+  }
+  return out.filter(Boolean).slice(0, 30);
+}
+const onRepeat = async () => ((await api("/me/top/tracks?limit=30&time_range=short_term")).items || []).map(trackItem).filter(Boolean);
+async function recentlyPlayed() {
+  const j = await api("/me/player/recently-played?limit=40");
+  const seen = new Set();
+  return (j.items || []).map(x => x.track).filter(t => t && !seen.has(t.uri) && seen.add(t.uri)).map(trackItem).filter(Boolean);
+}
+// songs like the one playing: same artist, plus the artist's genres
+async function songsLike(artistName, artistId, skipUri) {
+  let genres = [];
+  if (artistId) { try { genres = ((await api(`/artists/${artistId}`)).genres || []).slice(0, 2); } catch (e) {} }
+  const lists = await Promise.all([searchTracks(`artist:"${artistName}"`), ...genres.map(g => searchTracks(`genre:"${g}"`))]);
+  const seen = new Set([skipUri]), out = [];
+  for (const t of shuffled(lists.flat())) { if (t.uri && !seen.has(t.uri)) { seen.add(t.uri); out.push(trackItem(t)); } }
+  if (!out.length) throw { message: "Spotify didn't find any similar songs." };
+  return out.filter(Boolean).slice(0, 25);
+}
+const FOR_YOU = [
+  { label: "Mix For You", loader: mixForYou },
+  { label: "On Repeat", loader: onRepeat },
+  { label: "Recently Played", loader: recentlyPlayed },
+];
+
+// ---- rewind / fast-forward ----
+function currentPos() {
+  if (premiumOn()) return PREM.pos + (PREM.paused ? 0 : performance.now() - PREM.at);
+  return PLY.state ? PLY.state.position : 0;
+}
+function seekBy(ms) {
+  if (!PLY.current) return;
+  if (premiumOn()) {
+    if (!PREM.player || !PREM.dur) return;
+    const to = Math.max(0, Math.min(PREM.dur - 500, currentPos() + ms));
+    PREM.player.seek(to).catch(() => {});
+    PREM.pos = to; PREM.at = performance.now();
+  } else if (spCtrl && PLY.state && PLY.state.duration) {
+    const to = Math.max(0, Math.min(PLY.state.duration - 500, PLY.state.position + ms));
+    spCtrl.seek(to / 1000);
+    PLY.state = { ...PLY.state, position: to };
+    updateNowBits();
+  }
 }
 // if an album cover can't load, show a plain colour square instead
 window.ibpodCoverFail = img => {
@@ -1015,7 +1113,8 @@ setInterval(() => {
   $("#tEl").textContent = fmt(pos / 1000);
   $("#tRem").textContent = "-" + fmt((PREM.dur - pos) / 1000);
   $("#volBar").style.width = (S.vol / 16 * 100) + "%";
-  $("#npFoot").classList.toggle("show-vol", performance.now() < PREM.volUntil);
+  $("#npFoot").classList.toggle("show-vol", !NAV.scrub && performance.now() < PREM.volUntil);
+  $("#npFoot").classList.toggle("scrub", !!NAV.scrub);
 }, 250);
 
 /* setup panel: the Client ID from Spotify's developer dashboard */
@@ -1124,6 +1223,15 @@ const S = { ...DEFAULTS };
   S.vol = Math.max(0, Math.min(16, Math.round(S.vol)));
 }
 const saveSettings = () => store("tackle-ipod", S);
+
+// what the centre button offers on Now Playing
+const nowMenu = () => [
+  { label: "Rewind 10 seconds", act: () => seekBy(-10000) },
+  { label: "Forward 10 seconds", act: () => seekBy(10000) },
+  { label: "Scrub with the wheel", act: () => { NAV.scrub = true; toast("Spin to move through the song"); } },
+  { label: "Add to Playlist", act: "addto" },
+  ...(connected() ? [{ label: "Songs Like This", act: "like" }] : []),
+];
 
 const accountRows = () => PREM.tokens
   ? [
@@ -1255,6 +1363,8 @@ const menuItems = () => [
   { label: "Now Playing", go: "now" },
   { label: "Playlists", go: "pls" },
   connected() ? { label: "My Spotify", list: { label: "My Spotify", items: null, live: true } } : { label: "My Spotify", go: "account" },
+  { label: "For You", go: connected() ? "foryou" : IN_CLAUDE ? "claudeForYou" : "account" },
+  { label: "Search", go: connected() || IN_CLAUDE ? "find" : "account" },
   { label: "Browse", go: "browse" },
   { label: "Shuffle", value: S.shuffle ? "On" : "Off", act: toggleShuffle },
   { label: "Settings", go: "settings" },
@@ -1277,6 +1387,9 @@ function rowCount(v) {
     case "settings": return settingsRows().length;
     case "choice": return OPTIONS[NAV.choice].length;
     case "reset": return 2;
+    case "foryou": return FOR_YOU.length;
+    case "nowmenu": return nowMenu().length;
+    case "find": return NAV.find && NAV.find.items ? NAV.find.items.length : 0;
     case "account": return CAN_EMBED && clientId() ? accountRows().length : 0;
     case "list": return NAV.list && NAV.list.items ? NAV.list.items.length : 0;
     case "pls": case "addto": return playlists.length + 1;
@@ -1309,7 +1422,7 @@ function render() {
   $("#hdrTitle").textContent = {
     menu: "IBPOD", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist", browse: "Browse",
     search: "Search Spotify", eq: "Equalizer", eqsteps: (EQ_GUIDES[NAV.eqGuide] || EQ_GUIDES[0]).label, list: NAV.list ? NAV.list.label : "Spotify", addto: "Add to Playlist", help: "Controls",
-    settings: "Settings", account: "Spotify Account", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings",
+    settings: "Settings", account: "Spotify Account", foryou: "For You", nowmenu: "Song", find: "Search", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", reset: "Reset Settings",
   }[v];
   let html = "";
   if (v === "menu") {
@@ -1369,6 +1482,17 @@ function render() {
       const hint = PREM.err || (!PREM.tokens ? "Log in to see your own playlists. Premium plays full songs." : "");
       html = (hint ? `<div class="hint-bar">${esc(hint)}</div>` : "") + listHTML(rows.map(r => ({ label: r.label })), "account");
     }
+  } else if (v === "foryou") {
+    html = listHTML(FOR_YOU.map(f => ({ label: f.label, chev: true })), "foryou");
+  } else if (v === "nowmenu") {
+    html = listHTML(nowMenu().map(r => ({ label: r.label })), "nowmenu");
+  } else if (v === "find") {
+    const F = NAV.find;
+    if (F.loading) html = msgHTML("", "Searching Spotify…", true);
+    else if (F.err) html = msgHTML(F.err[0], F.err[1]);
+    else if (!F.items) html = msgHTML("Search Spotify", "Type in the search box below the IBPOD, then press Search.");
+    else if (!F.items.length) html = msgHTML("Nothing found", "Try different words.");
+    else html = listHTML(F.items.map(it => ({ label: it.by && it.type === "Song" ? `${it.name} · ${it.by}` : it.name, value: it.type })), "find");
   } else if (v === "reset") {
     html = listHTML([{ label: "Cancel" }, { label: "Reset all settings" }], "reset");
   } else if (v === "about") {
@@ -1391,7 +1515,9 @@ function render() {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
       <p><b>Spin the wheel</b> to scroll. <b>Centre button</b> picks.</p>
       <p><b>MENU</b> goes back. <b>⏯</b> plays or pauses Spotify.</p>
-      <p><b>⏮ ⏭</b> move through the list you're playing. <b>Shuffle</b> mixes up that list.</p>
+      <p><b>⏮ ⏭</b> move through the list you're playing. <b>Hold</b> them to rewind or fast-forward. <b>Shuffle</b> mixes up that list.</p>
+      <p><b>Now Playing:</b> the centre button opens Rewind, Forward, Scrub, Add to Playlist and Songs Like This.</p>
+      <p><b>Search</b> and <b>For You</b> need you logged into Spotify (My Spotify).</p>
       <p class="dim">Inside one Spotify playlist, use ⏭ in the Spotify player. To shuffle single songs, paste song links into an IBPOD playlist.</p>
       <p><b>Make a playlist:</b> Playlists → + New Playlist. Then play anything and press the centre button on Now Playing to add it.</p>
       <p><b>Battery:</b> it runs down faster while music plays. Click the charging port on the bottom edge of the IBPOD to plug in or unplug the charger.</p>
@@ -1407,6 +1533,8 @@ function render() {
   updateSpLink();
   updatePanel();
   $("#colorPanel").hidden = !(v === "choice" && NAV.choice === "body");
+  $("#findPanel").hidden = v !== "find";
+  if (v !== "now") NAV.scrub = false;
 }
 
 // small updates that happen many times a second while music plays
@@ -1429,6 +1557,7 @@ function highlighted() {
   const v = view();
   if (v === "now") return PLY.current;
   if (v === "list") return NAV.list.items ? NAV.list.items[sel("list")] : null;
+  if (v === "find") return NAV.find && NAV.find.items ? NAV.find.items[sel("find")] : null;
   if (v === "pl") { const pl = curPl(), s = sel("pl"); return pl && s > 0 ? pl.items[s - 1] : null; }
   return null;
 }
@@ -1647,6 +1776,33 @@ function showBattery() {
 setInterval(batteryTick, 1000);
 window.addEventListener("pagehide", saveBattery);
 
+/* ---------- the search box under the IBPOD ---------- */
+$("#findPanel").addEventListener("submit", async e => {
+  e.preventDefault();
+  const q = $("#findIn").value.trim();
+  if (!q) { $("#findMsg").textContent = "Type a song, artist, album or playlist first."; return; }
+  if (BAT.dead) { $("#findMsg").textContent = "The IBPOD's battery is empty. Charge it first."; return; }
+  $("#findIn").blur();   // so the arrow keys move through the results
+  $("#findMsg").textContent = "";
+  const F = NAV.find = { label: "Search", items: null, loading: true, q };
+  NAV.sel.find = 0; NAV.top.find = 0;
+  if (view() !== "find") push("find");
+  render();
+  try {
+    if (connected()) F.items = await searchSpotify(q);
+    else if (IN_CLAUDE) {   // on claude.ai, search through the Spotify connector
+      const L = { label: "Search", prompt: q, items: null };
+      NAV.list = L;
+      await spSearch(L);
+      F.items = L.items; F.err = L.err;
+    } else F.err = ["Log into Spotify first", "Go to My Spotify to connect, then search."];
+  } catch (err) {
+    F.err = ["Search didn't work", String((err && err.message) || "Try again.")];
+  }
+  F.loading = false;
+  if (NAV.find === F) render();
+});
+
 /* =========================================================
    BUTTONS
    ========================================================= */
@@ -1659,6 +1815,7 @@ function scroll(d) {
   if (BAT.dead) return;
   const v = view();
   clickSound();
+  if (v === "now" && NAV.scrub) { seekBy(d * 5000); return; }
   if (v === "now" && premiumOn()) {
     S.vol = Math.max(0, Math.min(16, S.vol + d));
     saveSettings();
@@ -1689,6 +1846,8 @@ function select() {
   if (v === "menu") {
     const it = menuItems()[s];
     if (it.list) { openList(it.list); if (it.list.live) { loadMine(it.list); return; } }
+    else if (it.go === "claudeForYou") { const L = { label: "For You", prompt: "recommend songs for me based on my taste", items: null }; openList(L); spSearch(L); return; }
+    else if (it.go === "find") { NAV.find = NAV.find || { label: "Search", items: null }; push("find"); render(); setTimeout(() => $("#findIn").focus(), 30); return; }
     else if (it.go) { if (it.go === "help") NAV.help = 0; push(it.go); }
     if (it.act) it.act();
   } else if (v === "settings") {
@@ -1739,6 +1898,7 @@ function select() {
     const L = NAV.list;
     if (L.err && !L.loading && L.prompt) { spSearch(L); return; }
     if (L.err && !L.loading && L.live) { loadMine(L); return; }
+    if (L.err && !L.loading && L.loader) { loadList(L); return; }
     const it = L.items && L.items[s];
     if (it) { playQueue(L.label, L.items, s, false); return; }
   } else if (v === "pls") {
@@ -1748,8 +1908,33 @@ function select() {
     const pl = curPl();
     if (pl && pl.items.length) { playQueue(pl.name, pl.items, s === 0 ? 0 : s - 1, s === 0); return; }
   } else if (v === "now") {
-    if (PLY.current && PLY.current.uri === LIKED.uri) toast("Liked Songs can't go in a playlist");
-    else if (PLY.current) push("addto");
+    if (NAV.scrub) { NAV.scrub = false; toast("Done scrubbing"); }
+    else if (PLY.current) push("nowmenu");
+  } else if (v === "nowmenu") {
+    const r = nowMenu()[s];
+    NAV.stack.pop();
+    if (typeof r.act === "function") r.act();
+    else if (r.act === "addto") {
+      if (PLY.current.uri === LIKED.uri) toast("Liked Songs can't go in a playlist");
+      else push("addto");
+    } else if (r.act === "like") {
+      const t = PREM.track;
+      const artist = t ? t.artist : (PLY.current.by || "").split(",")[0].trim();
+      if (!artist) { toast("IBPOD doesn't know this song's artist"); }
+      else { const L = { label: "Like This", items: null, loader: () => songsLike(artist, t && t.artistId, t && t.uri) }; openList(L); loadList(L); return; }
+    }
+  } else if (v === "foryou") {
+    const f = FOR_YOU[s];
+    const L = { label: f.label, items: null, loader: f.loader };
+    openList(L); loadList(L); return;
+  } else if (v === "find") {
+    const F = NAV.find, it = F.items && F.items[s];
+    if (it) {
+      const songs = F.items.filter(x => x.type === "Song");
+      if (it.type === "Song") playQueue("Search", songs, songs.indexOf(it), false);
+      else { PLY.queue = null; playItem(it); }
+      return;
+    }
   } else if (v === "addto") {
     const i = s === 0 ? newPlaylist() : s - 1;
     addToPlaylist(i, PLY.current);
@@ -1760,6 +1945,7 @@ function select() {
 function menuBtn() {
   if (BAT.dead) return;
   clickSound();
+  if (view() === "now" && NAV.scrub) { NAV.scrub = false; render(); return; }
   if (view() === "list" && NAV.list && NAV.list.prompt) SP.req++;
   if (view() === "choice" && NAV.preview) { NAV.preview = null; applySettings(); }
   if (NAV.stack.length > 1) NAV.stack.pop();
@@ -1809,8 +1995,19 @@ wheel.addEventListener("pointerdown", e => {
   const a = angleOf(e);
   drag = { last: a, acc: 0, total: 0, quad: quadrant(a) };
   wheel.dataset.press = drag.quad;
+  // holding ⏮ or ⏭ rewinds or fast-forwards, like a real iPod
+  if ((drag.quad === "left" || drag.quad === "right") && PLY.current && !BAT.dead) {
+    const dir = drag.quad === "left" ? -1 : 1, d0 = drag;
+    d0.holdTimer = setTimeout(() => {
+      d0.held = true;
+      toast(dir < 0 ? "Rewinding…" : "Fast-forwarding…");
+      seekBy(dir * 5000);
+      d0.holdIv = setInterval(() => seekBy(dir * 5000), 300);
+    }, 450);
+  }
   e.preventDefault();
 });
+const stopHold = d => { if (d) { clearTimeout(d.holdTimer); clearInterval(d.holdIv); } };
 wheel.addEventListener("pointermove", e => {
   if (!drag) return;
   const a = angleOf(e);
@@ -1818,13 +2015,14 @@ wheel.addEventListener("pointermove", e => {
   if (d > 180) d -= 360;
   if (d < -180) d += 360;
   drag.last = a; drag.acc += d; drag.total += Math.abs(d);
-  if (drag.total > 8) wheel.dataset.press = "";
+  if (drag.total > 8) { wheel.dataset.press = ""; if (!drag.held) stopHold(drag); }
   const step = STEP_DEG();
   while (drag.acc >= step) { scroll(1); drag.acc -= step; }
   while (drag.acc <= -step) { scroll(-1); drag.acc += step; }
 });
 const endDrag = fire => () => {
-  if (drag && fire && drag.total < 8) press(drag.quad);
+  stopHold(drag);
+  if (drag && fire && drag.total < 8 && !drag.held) press(drag.quad);
   drag = null;
   wheel.dataset.press = "";
 };
@@ -1856,6 +2054,8 @@ window.addEventListener("keydown", e => {
     Enter: () => select(), " ": () => press("bottom"),
     Escape: () => menuBtn(), Backspace: () => menuBtn(), m: () => menuBtn(),
   };
+  if (e.shiftKey && (k === "ArrowLeft" || k === "ArrowRight")) { e.preventDefault(); wake(); seekBy(k === "ArrowLeft" ? -10000 : 10000); return; }
+  if (k === "/") { e.preventDefault(); const i = menuItems().findIndex(m => m.label === "Search"); NAV.stack = ["menu"]; NAV.sel.menu = i; select(); return; }
   if (!map[k]) return;
   if (k === "Enter" && document.activeElement === $("#center")) return; // the button's own click handles it
   e.preventDefault();
