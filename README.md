@@ -1,16 +1,16 @@
 # SpotPod
 
-A click-wheel music player for your Spotify playlists, in your browser.
+A click-wheel music player for YouTube music, in your browser.
 
 **Play it:** https://isgoodtf2.github.io/IBPOD/
 
 - Spin the wheel to scroll, press the centre button to pick, MENU to go back
-- My Spotify, Browse lists and your own SpotPod playlists
+- Search YouTube, Browse genre charts and your own SpotPod playlists
+- For You learns from the songs you play
+- The video plays on a screen next to the SpotPod (YouTube's rules say it has to stay visible)
 - Shuffle, a battery you charge by clicking the port on the bottom, and lots of Settings
 - Works on phones and computers; add it to your home screen to use it like an app
 
-Log into Spotify in the same browser to hear full songs instead of 30-second previews.
-
-Created by Aaron. Spotify is a trademark of Spotify AB.
-
 If you see a 404, wait a minute and refresh: GitHub Pages can take a moment after an update.
+
+Created by Aaron. YouTube is a trademark of Google LLC.
