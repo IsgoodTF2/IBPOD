@@ -58,7 +58,8 @@ body {
   .title { grid-area: title; }
   .ipod-wrap { grid-area: pod; }
   .side { grid-area: side; align-items: stretch; padding-top: 8px; }
-  .side .sp-link, .side .like-btn { align-self: flex-start; }
+  .side .sp-link, .side .song-actions { align-self: flex-start; }
+  .side .song-btns, .side .add-menu { justify-content: flex-start; }
   .side .hints { justify-content: flex-start; }
   .side .credits { align-items: flex-start; text-align: left; }
 }
@@ -422,6 +423,16 @@ kbd {
 .like-btn[aria-pressed="true"] { background: #e8263f; border-color: transparent; color: #fff; }
 .like-btn[aria-pressed="true"] b { color: #fff; }
 .like-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.song-actions { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 8px; max-width: min(100%, 26rem); }
+.song-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; min-width: 0; }
+.song-btns .like-btn:first-child { flex: 0 1 auto; min-width: 0; }
+.add-btn { flex: 0 0 auto; }
+.add-btn[aria-expanded="true"] { background: rgba(255,255,255,.18); }
+.add-menu { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; padding: 10px; border-radius: 14px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); }
+.add-menu button { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); border-radius: 999px; padding: 6px 12px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-menu button:hover { background: rgba(255,255,255,.16); }
+.add-menu button.in { color: var(--muted); }
+.add-menu button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .sp-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sp-link svg { width: 16px; height: 16px; flex-shrink: 0; fill: currentColor; }
 
@@ -605,7 +616,13 @@ kbd {
     </div>
   </section>
 
-  <button type="button" class="like-btn" id="likeBtn" hidden aria-pressed="false"><b aria-hidden="true">♡</b><span id="likeText">Like</span></button>
+  <div class="song-actions" id="songActions" hidden>
+    <div class="song-btns">
+      <button type="button" class="like-btn" id="likeBtn" aria-pressed="false"><b aria-hidden="true">♡</b><span id="likeText">Like</span></button>
+      <button type="button" class="like-btn add-btn" id="addBtn" aria-expanded="false" aria-controls="addMenu"><b aria-hidden="true">+</b><span>Add to Playlist</span></button>
+    </div>
+    <div class="add-menu" id="addMenu" hidden role="group" aria-label="Add the playing song to a playlist"></div>
+  </div>
 
   <a class="sp-link" id="spLink" href="https://www.youtube.com/" target="_blank" rel="noopener" hidden>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z"/></svg>
@@ -663,6 +680,7 @@ kbd {
     <span class="kb"><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> rewind</span>
     <span class="kb"><kbd>/</kbd> search</span>
     <span class="kb"><kbd>L</kbd> like</span>
+    <span class="kb"><kbd>A</kbd> add to playlist</span>
   </div>
 
   <footer class="credits">
@@ -769,6 +787,16 @@ function toggleLike(it) {
   else { L.items.unshift({ ...it, t: Date.now() }); toast("♥ Added to Liked Songs"); }
   savePlaylists();
   if (view() === "pl") NAV.sel.pl = Math.min(sel("pl"), Math.max(0, plRows(curPl()).length - 1));
+  render();
+}
+// A adds the song you're pointing at in a list (or the one playing) to a playlist
+function addSongKey() {
+  clickSound();
+  const it = likeTarget();
+  if (!it) { toast("Play or pick a song first"); return; }
+  if (view() === "addto") return;
+  NAV.addItem = it;
+  push("addto");
   render();
 }
 // L likes the song you're pointing at in a list, or else the one playing
@@ -1485,7 +1513,8 @@ function render() {
       : pl && pl.id === LIKED ? msgHTML("No liked songs yet", "Play a song, press the centre button and pick ♥ Like. Or press L.")
       : msgHTML("This playlist is empty", "Play something, then press the centre button and pick Add to Playlist.");
   } else if (v === "addto") {
-    html = listHTML(plsRows(), "addto");
+    const it = NAV.addItem || PLY.current;
+    html = (it ? `<div class="hint-bar">Adding “${esc(it.name)}”</div>` : "") + listHTML(plsRows(), "addto");
   } else if (v === "now") {
     const it = PLY.current, q = PLY.queue;
     if (!it) html = msgHTML("Nothing playing yet", "Pick something from Search or your Playlists.");
@@ -1544,7 +1573,8 @@ function render() {
       <p><b>Recommended</b> learns from your ♥ Liked Songs and the songs you play. Your Mix mixes artists you like with new ones; New Artists is only new ones.</p>
       <p><b>Like a song:</b> tap the ♡ Like button next to the YouPod, or on Now Playing press the centre button and pick ♥ Like. In any list, press L to like the song you're pointing at. Liked songs show a ♥ and go in Playlists → ♥ Liked Songs.</p>
       <p><b>Search</b> finds songs or whole YouTube playlists. Pick Songs or Playlists next to the search box.</p>
-      <p><b>Make a playlist:</b> Playlists → + New Playlist, then add songs from Now Playing.</p>
+      <p><b>Add to a playlist:</b> tap + Add to Playlist next to the YouPod and pick one. In any list, press A to add the song you're pointing at. Or on Now Playing, press the centre button and pick Add to Playlist.</p>
+      <p><b>Make a playlist:</b> Playlists → + New Playlist, or pick + New Playlist when adding a song.</p>
       <p><b>Battery:</b> click the charging port on the bottom edge to plug in or unplug.</p>
       <p class="dim">Playlists and settings save in this browser. Settings → Terms & Privacy explains more, and Settings → Delete My Data wipes them.</p>
     </div></div>`;
@@ -1577,8 +1607,9 @@ function highlighted() {
 // the heart button next to the YouPod always means the song that's playing
 function updateLikeBtn() {
   const it = CAN_PLAY ? PLY.current : null, b = $("#likeBtn");
-  b.hidden = !it;
-  if (!it) return;
+  $("#songActions").hidden = !it;
+  if (!it) { closeAddMenu(); return; }
+  if (!$("#addMenu").hidden && $("#addMenu").dataset.uri !== it.uri) closeAddMenu();   // the song changed
   const on = isLiked(it);
   b.setAttribute("aria-pressed", String(on));
   b.querySelector("b").textContent = on ? "♥" : "♡";
@@ -1588,6 +1619,34 @@ $("#likeBtn").addEventListener("click", e => {
   clickSound();
   toggleLike(PLY.current);
   if (e.detail) e.currentTarget.blur();  // after a mouse click, the keyboard goes back to the iPod
+});
+// "+ Add to Playlist" next to the YouPod: a row of your playlists to tap
+function closeAddMenu() { $("#addMenu").hidden = true; $("#addBtn").setAttribute("aria-expanded", "false"); }
+function openAddMenu() {
+  const it = PLY.current, m = $("#addMenu");
+  if (!it) return;
+  m.dataset.uri = it.uri;
+  m.innerHTML = `<button type="button" data-add="new">+ New Playlist</button>` + playlists.map((p, i) => {
+    const has = p.items.some(x => x.uri === it.uri);
+    return `<button type="button" data-add="${i}" class="${has ? "in" : ""}">${has ? "✓ " : ""}${esc(p.name)}</button>`;
+  }).join("");
+  m.hidden = false;
+  $("#addBtn").setAttribute("aria-expanded", "true");
+}
+$("#addBtn").addEventListener("click", e => {
+  clickSound();
+  if ($("#addMenu").hidden) openAddMenu(); else closeAddMenu();
+  if (e.detail) e.currentTarget.blur();
+});
+$("#addMenu").addEventListener("click", e => {
+  const b = e.target.closest("[data-add]");
+  if (!b || !PLY.current) return;
+  clickSound();
+  const isNew = b.dataset.add === "new", i = isNew ? newPlaylist() : Number(b.dataset.add);
+  addToPlaylist(i, PLY.current);
+  if (isNew) toast(`Added to ${playlists[i].name}. Rename it in Playlists.`, 3000);
+  closeAddMenu();
+  render();
 });
 function updateSpLink() {
   updateLikeBtn();
@@ -1876,7 +1935,7 @@ function select() {
     const r = nowMenu()[s];
     NAV.stack.pop();
     if (typeof r.act === "function") r.act();
-    else if (r.act === "addto") push("addto");
+    else if (r.act === "addto") { NAV.addItem = PLY.current; push("addto"); }
     else if (r.act === "like") {
       const cur = PLY.current;
       const L = { label: "Like This", items: null, loader: () => songsLike(cur) };
@@ -1895,7 +1954,8 @@ function select() {
     if (it) { playQueue("Search", F.items, s, false); return; }
   } else if (v === "addto") {
     const i = s === 0 ? newPlaylist() : s - 1;
-    addToPlaylist(i, PLY.current);
+    addToPlaylist(i, NAV.addItem || PLY.current);
+    NAV.addItem = null;
     NAV.stack.pop();
   }
   render();
@@ -1999,6 +2059,7 @@ window.addEventListener("keydown", e => {
     Enter: () => select(), " ": () => press("bottom"),
     Escape: () => menuBtn(), Backspace: () => menuBtn(), m: () => menuBtn(),
     l: () => { clickSound(); toggleLike(likeTarget()); }, L: () => { clickSound(); toggleLike(likeTarget()); },
+    a: () => addSongKey(), A: () => addSongKey(),
   };
   if (e.shiftKey && (k === "ArrowLeft" || k === "ArrowRight")) { e.preventDefault(); wake(); seekBy(k === "ArrowLeft" ? -10000 : 10000); return; }
   if (k === "/") { e.preventDefault(); const i = menuItems().findIndex(m => m.label === "Search"); homeView(); NAV.sel.menu = i; select(); return; }
