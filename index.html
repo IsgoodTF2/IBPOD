@@ -770,7 +770,7 @@ function addToPlaylist(i, item) {
   toast(`Added to ${pl.name}`);
 }
 
-// what you've played on YouPod (For You learns from this)
+// what you've played on YouPod (Recommended learns from this)
 let history = (Array.isArray(load("spotpod-history", [])) ? load("spotpod-history", []) : []).map(cleanItem).filter(Boolean).slice(0, 60);
 function remember(item) {
   history = [item, ...history.filter(x => x.uri !== item.uri)].slice(0, 60);
@@ -871,18 +871,52 @@ function ytPlaylistSongs(id) {
 }
 
 const shuffled = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-// For You: new songs from the artists you play most on YouPod
-async function mixForYou() {
-  if (!history.length) throw { message: "Play some songs first, so YouPod can learn what you like." };
-  const score = {};
-  history.forEach((h, i) => { if (h.by) score[h.by] = (score[h.by] || 0) + (60 - i); });
-  const artists = Object.keys(score).sort((a, b) => score[b] - score[a]).slice(0, 3);
-  const known = new Set(history.map(h => h.uri));
-  const lists = await Promise.all(artists.map(a => ytSearch(a, 15).catch(() => [])));
-  const seen = new Set(), out = [];
-  for (const t of shuffled(lists.flat())) if (!known.has(t.uri) && !seen.has(t.uri)) { seen.add(t.uri); out.push(t); }
+/* ---------- Recommended ----------
+   YouPod learns your taste from ♥ Liked Songs (they count most) and what
+   you've played. Each search is saved for 12 hours, so opening these lists
+   again doesn't use up the daily search allowance. */
+// the artist, from a title like "Ran-D & Adaro - Zombie" (lots of channels re-upload songs), else the channel
+const songArtist = t => (String(t.name).includes(" - ") ? t.name.split(" - ")[0] : String(t.by || ""))
+  .split(/\s*(?:&|,|\sx\s|\sft\.?\s|\sfeat\.?\s|\svs\.?\s)\s*/i)[0].trim().slice(0, 60);
+function topArtists(n) {
+  const score = {}, add = (h, pts) => { const a = songArtist(h); if (a) score[a] = (score[a] || 0) + pts; };
+  likedPl().items.forEach((h, i) => add(h, Math.max(40, 120 - i)));
+  history.forEach((h, i) => add(h, 60 - i));
+  return Object.keys(score).sort((a, b) => score[b] - score[a]).slice(0, n);
+}
+const knownSongs = () => new Set([...likedPl().items, ...history].map(h => h.uri));
+const tasteNeeded = () => { if (!topArtists(1).length) throw { message: "Play or ♥ like some songs first, so YouPod can learn what you like." }; };
+// new songs from the artists you like most
+async function fromYourArtists() {
+  const known = knownSongs();
+  const lists = await Promise.all(topArtists(2).map(a => ytSearch(a, 15).catch(() => [])));
+  return lists.flat().filter(t => !known.has(t.uri));
+}
+// other people's playlists with your favourite artists in them are full of similar artists
+async function fromSimilarArtists() {
+  const tops = topArtists(3), names = tops.map(a => a.toLowerCase()), known = knownSongs();
+  const q = tops.length > 1 ? `${tops[0]} ${tops[1]}` : `${tops[0]} mix`;
+  const found = await ytSearchPlaylists(q).catch(() => []);
+  const lists = await Promise.all(found.slice(0, 3).map(pl => ytPlaylistSongs(pl.id).catch(() => [])));
+  const yours = t => { const s = (t.name + " " + t.by).toLowerCase(); return names.some(n => s.includes(n)); };
+  return lists.flat().filter(t => !known.has(t.uri) && !yours(t));
+}
+const uniq = list => { const seen = new Set(); return list.filter(t => !seen.has(t.uri) && seen.add(t.uri)); };
+async function yourMix() {
+  tasteNeeded();
+  const [mine, similar] = await Promise.all([fromYourArtists(), fromSimilarArtists()]);
+  // two from artists you know, then one new one, and so on
+  const a = shuffled(uniq(mine)), b = shuffled(uniq(similar)), out = [];
+  while (a.length || b.length) { out.push(...a.splice(0, 2)); out.push(...b.splice(0, 1)); }
   if (!out.length) throw { message: "YouTube didn't find new songs right now. Try again later." };
-  return out.slice(0, 30);
+  return uniq(out).slice(0, 40);
+}
+async function newArtists() {
+  tasteNeeded();
+  // a few songs from each new artist, so one artist doesn't fill the list
+  const per = {}, out = shuffled(uniq(await fromSimilarArtists())).filter(t => (per[songArtist(t)] = (per[songArtist(t)] || 0) + 1) <= 3);
+  if (!out.length) throw { message: "YouTube didn't find new artists right now. Try again later." };
+  return out.slice(0, 40);
 }
 async function songsLike(it) {
   const list = (await ytSearch(it.by || it.name, 20)).filter(x => x.uri !== it.uri);
@@ -890,7 +924,8 @@ async function songsLike(it) {
   return shuffled(list);
 }
 const FOR_YOU = [
-  { label: "Mix For You", loader: mixForYou },
+  { label: "Your Mix", loader: yourMix },
+  { label: "New Artists", loader: newArtists },
   { label: "Recently Played", loader: async () => { if (!history.length) throw { message: "Nothing played yet." }; return history.slice(); } },
 ];
 
@@ -1349,7 +1384,7 @@ const menuItems = () => [
   { label: "Now Playing", go: "now" },
   { label: "Playlists", go: "pls" },
   { label: "Search", go: "find" },
-  { label: "For You", go: "foryou" },
+  { label: "Recommended", go: "foryou" },
   { label: "Shuffle", value: S.shuffle ? "On" : "Off", act: toggleShuffle },
   { label: "Settings", go: "settings" },
 ];
@@ -1412,7 +1447,7 @@ function render() {
   $("#hdrTitle").textContent = {
     menu: "YouPod", now: "Now Playing", pls: "Playlists", pl: pl ? pl.name : "Playlist",
     list: NAV.list ? NAV.list.label : "Music", addto: "Add to Playlist", help: "Controls",
-    settings: "Settings", ytsetup: "YouTube Setup", foryou: "For You", nowmenu: "Song", find: "Search YouTube", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", premium: "YouTube Premium", reset: "Reset Settings", wipe: "Delete My Data",
+    settings: "Settings", ytsetup: "YouTube Setup", foryou: "Recommended", nowmenu: "Song", find: "Search YouTube", choice: OPTION_TITLES[NAV.choice] || "Settings", about: "About", premium: "YouTube Premium", reset: "Reset Settings", wipe: "Delete My Data",
   }[v];
   let html = "";
   if (v === "menu") {
@@ -1452,7 +1487,7 @@ function render() {
     html = listHTML(OPTIONS[NAV.choice].map(o => ({ label: o[1], value: S[NAV.choice] === o[0] ? "✓" : null })), "choice");
   } else if (v === "ytsetup") {
     html = !CAN_PLAY ? msgHTML("Use the YouPod website", "Set up YouTube on isgoodtf2.github.io/YouPod.")
-      : ytKey() ? msgHTML("YouTube is set up", "Search and For You are ready.")
+      : ytKey() ? msgHTML("YouTube is set up", "Search and Recommended are ready.")
       : msgHTML("One-time setup", "Follow the steps under the YouPod to add YouPod's YouTube key.");
   } else if (v === "foryou") {
     html = listHTML(FOR_YOU.map(f => ({ label: f.label, chev: true })), "foryou");
@@ -1474,7 +1509,7 @@ function render() {
       + listHTML([{ label: "Use My YouTube Account", value: S.premium ? "On" : "Off" }, { label: "Sign In to YouTube", chev: true }], "premium");
   } else if (v === "about") {
     html = `<div class="help"><div class="help-inner" style="transform:translateY(${-NAV.help * 18}px)">
-      <p><b>YouPod</b> · version 6</p>
+      <p><b>YouPod</b> · version 7</p>
       <p>Created by <b>Aaron</b>.</p>
       <p>Music plays through YouTube. The video plays on the screen next to the YouPod, and the YouPod is the remote.</p>
       <p class="dim">Playlists: ${playlists.length} · Songs played: ${history.length}</p>
@@ -1486,7 +1521,7 @@ function render() {
       <p><b>⏯</b> plays or pauses. <b>⏮ ⏭</b> move through the list you're playing. <b>Hold</b> them to rewind or fast-forward.</p>
       <p><b>Now Playing:</b> spin the wheel for volume. The centre button opens Rewind, Forward, Scrub, Add to Playlist and Songs Like This.</p>
       <p><b>The video</b> plays on the screen next to the YouPod. YouTube's rules say it has to stay visible.</p>
-      <p><b>For You</b> learns from the songs you play on YouPod.</p>
+      <p><b>Recommended</b> learns from your ♥ Liked Songs and the songs you play. Your Mix mixes artists you like with new ones; New Artists is only new ones.</p>
       <p><b>Like a song:</b> on Now Playing press the centre button and pick ♥ Like, or press L. They go in Playlists → ♥ Liked Songs.</p>
       <p><b>Search</b> finds songs or whole YouTube playlists. Pick Songs or Playlists next to the search box.</p>
       <p><b>Make a playlist:</b> Playlists → + New Playlist, then add songs from Now Playing.</p>
