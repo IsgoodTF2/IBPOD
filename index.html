@@ -1400,7 +1400,7 @@ function render() {
   } else if (v === "now") {
     const it = PLY.current, q = PLY.queue;
     if (!it) html = msgHTML("Nothing playing yet", "Pick something from Search or your Playlists.");
-    else if (!CAN_PLAY) html = msgHTML("Open the YouPod website", "Music plays on isgoodtf2.github.io/IBPOD, not inside claude.ai.");
+    else if (!CAN_PLAY) html = msgHTML("Open the YouPod website", "Music plays on isgoodtf2.github.io/YouPod, not inside claude.ai.");
     else html = `<div class="np">
       <div class="np-count">${q ? `${q.pos + 1} of ${q.order.length} · ${esc(q.name)}` : "YouTube"}${S.shuffle ? " · Shuffle" : ""}</div>
       <div class="np-main"><img class="cover" src="${esc(it.art)}" alt="" onerror="ibpodCoverFail(this)"><div class="np-info"><b>${esc(it.name)}</b><span>${esc(it.by)}</span><span class="meta">${isLiked(it) ? "♥ Liked · " : ""}YouTube</span></div></div>
@@ -1417,7 +1417,7 @@ function render() {
   } else if (v === "choice") {
     html = listHTML(OPTIONS[NAV.choice].map(o => ({ label: o[1], value: S[NAV.choice] === o[0] ? "✓" : null })), "choice");
   } else if (v === "ytsetup") {
-    html = !CAN_PLAY ? msgHTML("Use the YouPod website", "Set up YouTube on isgoodtf2.github.io/IBPOD.")
+    html = !CAN_PLAY ? msgHTML("Use the YouPod website", "Set up YouTube on isgoodtf2.github.io/YouPod.")
       : ytKey() ? msgHTML("YouTube is set up", "Search and For You are ready.")
       : msgHTML("One-time setup", "Follow the steps under the YouPod to add YouPod's YouTube key.");
   } else if (v === "foryou") {

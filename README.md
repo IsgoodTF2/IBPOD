@@ -2,7 +2,7 @@
 
 A click-wheel music player for YouTube music, in your browser.
 
-**Play it:** https://isgoodtf2.github.io/IBPOD/
+**Play it:** https://isgoodtf2.github.io/YouPod/
 
 - Spin the wheel to scroll, press the centre button to pick, MENU to go back
 - Search YouTube for songs or whole playlists, a ♥ Liked Songs playlist, and your own YouPod playlists
