@@ -800,6 +800,7 @@ async function ytApi(path, params) {
 }
 // results are saved for 12 hours, so the same search doesn't use the allowance twice
 function cached(key, clean, fetcher) {
+  key = "v2:" + key;   // v2: results are checked with playableOnly
   const cache = load("spotpod-cache", {}) || {};
   const c = cache[key];
   if (c && Date.now() - c.t < 12 * 3600000 && Array.isArray(c.items)) return Promise.resolve(c.items.map(clean).filter(Boolean));
@@ -812,11 +813,30 @@ function cached(key, clean, fetcher) {
   });
 }
 const artistOf = s => decode(s).replace(/ - Topic$/, "");
+// YouTube's details say which videos won't play on other websites (blocked by the owner,
+// private, age-restricted, still uploading), so those are left out before you see them.
+// One cheap request covers 50 songs. If the check fails, the songs are kept.
+async function playableOnly(items) {
+  const ids = [...new Set(items.map(ytId))], ok = new Set();
+  try {
+    for (let i = 0; i < ids.length; i += 50) {
+      const j = await ytApi("videos", { part: "status,contentDetails", id: ids.slice(i, i + 50).join(","), maxResults: "50" });
+      (j.items || []).forEach(v => {
+        const st = v.status || {}, rating = (v.contentDetails && v.contentDetails.contentRating) || {};
+        if (st.embeddable === false || st.privacyStatus === "private") return;
+        if (st.uploadStatus && st.uploadStatus !== "processed") return;
+        if (rating.ytRating === "ytAgeRestricted") return;
+        ok.add(v.id);
+      });
+    }
+  } catch (e) { return items; }
+  return items.filter(it => ok.has(ytId(it)));
+}
 function ytSearch(q, max = 25) {
   return cached(q, cleanItem, async () => {
     const j = await ytApi("search", { part: "snippet", type: "video", videoEmbeddable: "true", videoCategoryId: "10", safeSearch: "moderate", maxResults: String(max), q });
-    return (j.items || []).filter(x => x && x.id && x.id.videoId && x.snippet)
-      .map(x => ytItem(x.id.videoId, decode(x.snippet.title), artistOf(x.snippet.channelTitle)));
+    return playableOnly((j.items || []).filter(x => x && x.id && x.id.videoId && x.snippet && x.snippet.liveBroadcastContent !== "upcoming")
+      .map(x => ytItem(x.id.videoId, decode(x.snippet.title), artistOf(x.snippet.channelTitle))));
   });
 }
 // a YouTube playlist found by search (opens like a folder)
@@ -844,8 +864,9 @@ function ytPlaylistSongs(id) {
       page = j.nextPageToken;
       if (!page) break;
     }
-    if (!out.length) throw { message: "This playlist has no songs that can play." };
-    return out;
+    const songs = await playableOnly(out);
+    if (!songs.length) throw { message: "This playlist has no songs that can play." };
+    return songs;
   });
 }
 
@@ -1007,9 +1028,22 @@ function ytStateChange(e) {
   ytSync();
   updateNowBits();
 }
+// YouTube's player error numbers, in plain words
+const YT_ERRORS = {
+  2: "The video link is broken",
+  5: "YouTube's player had a problem",
+  100: "The video was removed or made private",
+  101: "The owner doesn't allow it on other websites",
+  150: "The owner doesn't allow it on other websites (or it isn't allowed in your country)",
+  153: "YouTube couldn't tell which website this is",
+};
+let ytRetried = "";
 function ytError(e) {
-  toast(e.data === 101 || e.data === 150 ? "This video's owner blocks it here. Skipping…" : "That video can't play. Skipping…");
-  if (++ytFails < 5) setTimeout(() => queueStep(1), 1200);
+  const it = PLY.current;
+  // a player hiccup often works the second time
+  if (e.data === 5 && it && ytRetried !== it.uri) { ytRetried = it.uri; setTimeout(() => ytPlay(it), 800); return; }
+  toast(`Can't play: ${YT_ERRORS[e.data] || "YouTube said no"} (error ${e.data}). Skipping…`, 3500);
+  if (++ytFails < 5) setTimeout(() => queueStep(1), 1800);
 }
 const volPct = () => Math.round(Math.pow(S.vol / 16, 1.5) * 100);
 function ytPlay(item, from = 0) {
