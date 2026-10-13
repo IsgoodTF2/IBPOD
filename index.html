@@ -1752,7 +1752,12 @@ function scroll(d) {
     NAV.volUntil = performance.now() + 1500;
     return;
   }
-  if (v === "help" || v === "about") { NAV.help = Math.max(0, Math.min(9, NAV.help + d)); render(); return; }
+  if (v === "help" || v === "about") {
+    // scroll just far enough to show the last line, however long the text is (and in Large text)
+    const box = $("#view .help"), inner = $("#view .help-inner");
+    const max = box && inner ? Math.max(0, Math.ceil((inner.offsetHeight - box.clientHeight) / 18)) : 0;
+    NAV.help = Math.max(0, Math.min(max, NAV.help + d)); render(); return;
+  }
   const n = rowCount(v);
   if (!n) return;
   const next = Math.max(0, Math.min(n - 1, sel(v) + d));
